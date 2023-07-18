@@ -1,13 +1,17 @@
 """Main script for running the full truck analysis pipeline.
 
 TODO:
--   clean this up and fix errors (i.e. actually figure out how to interpret
-    yolo results and work with norfair tracking)
+- add either ROI input as well as NSEW directions or just NSEW directions
+- implement data aggregation through lifecycle of vehicle
+- check out position and velocity estimate properties of the TrackedObject class
+for estimating entry and exit positions as well as the speed (velocity might
+be an issue because the property is in absolute coordinates)
+- implement a ReID function for when kalman filter estimates fail (check out the
+data parameter of Detection objects for this)
 """
 
 import argparse
 import os
-from typing import List, Optional, Union
 
 import numpy as np
 import torch
@@ -15,76 +19,30 @@ import torch
 import cv2 as cv
 import norfair
 from norfair import Detection, Paths, Tracker, Video
+from norfair.utils import print_objects_as_table  # for testing ............
 from ultralytics import YOLO
 
+from config import ROOT_DIR
+from utils.tracking import yolo_detections_to_norfair_detections, merge_frames
+from utils.user_input import get_roi, draw_roi, get_coordinates, ROI, COORDINATES
+
+# NOTE: play with these constants, or try an algorithm that somehow finds the
+# best results once I have a ground truth set up
+
+# tracking constants
 DISTANCE_THRESHOLD_BBOX: float = 0.7
 DISTANCE_THRESHOLD_CENTROID: int = 30
 MAX_DISTANCE: int = 10000
-IMG_SZ = 720
-CONF_THRESHOLD = 0.30
+LIFESPAN = 15  # max number of frames a tracked object can surive without a match
+DETECTION_THRESHOLD = 0  # may be redundant if I already have CONF_THRESHOLD
+
+# detection constants
+IMG_SZ = 512
+CONF_THRESHOLD = 0.45
 IOU_THRESHOLD = 0.45
 
-LABEL2NAME = {0: "lower_class", 1: "upper_class"}
 
-
-def center(points):
-    return [np.mean(np.array(points), axis=0)]
-
-
-def yolo_detections_to_norfair_detections(
-    yolo_detections: torch.tensor, track_points: str = "centroid"  # bbox or centroid
-) -> List[Detection]:
-    """convert detections_as_xywh to norfair detections"""
-    norfair_detections: List[Detection] = []
-
-    # TODO: figure this out
-    # if track_points == "centroid":
-    # for detection in yolo_detections:
-    #     bbox_as_xywh = detection.boxes.cpu().numpy().xywh.astype(int)
-    #     score = detection.boxes.cpu().numpy().conf
-    #     cls = detection.boxes.cpu().numpy().cls.astype(int)
-    #     if len(bbox_as_xywh) > 0:
-    #         centroid = np.array(
-    #             [
-    #                 bbox_as_xywh[0, 0] + bbox_as_xywh[0, 2] // 2,
-    #                 bbox_as_xywh[0, 1] + bbox_as_xywh[0, 3] // 2,
-    #             ]
-    #         )
-    #         norfair_detections.append(
-    #             Detection(
-    #                 points=centroid,
-    #                 scores=score,
-    #                 label=LABEL2NAME[cls[0]],
-    #             )
-    #         )
-    # elif track_points == "bbox":
-    for detection in yolo_detections[0].boxes:
-        bbox_as_xyxy = detection.cpu().numpy().xyxy.astype(int)
-        score = detection.cpu().numpy().conf
-        cls = detection.cpu().numpy().cls.astype(int)
-        bbox = np.array(
-            [
-                [bbox_as_xyxy[0, 0], bbox_as_xyxy[0, 1]],
-                [bbox_as_xyxy[0, 2], bbox_as_xyxy[0, 3]],
-            ]
-        )
-        score_per_corner = np.ones(2, dtype=int) * score
-        norfair_detections.append(
-            Detection(
-                points=bbox,
-                scores=score_per_corner,
-                label=LABEL2NAME[cls[0]],
-            )
-        )
-
-    return norfair_detections
-
-
-def merge_frames(track_mask, video_frame):
-    return cv.addWeighted(track_mask, 1, video_frame, 1, 0)
-
-
-def main(model_path, video_path, track_points="bbox"):
+def process(model_path, video_path, track_points="bbox"):
     # automatically set device for inferencing
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"using device {device}")
@@ -94,7 +52,6 @@ def main(model_path, video_path, track_points="bbox"):
     video = Video(input_path=video_path)
 
     distance_function = "iou" if track_points == "bbox" else "euclidean"
-
     distance_threshold = (
         DISTANCE_THRESHOLD_BBOX
         if track_points == "bbox"
@@ -108,7 +65,13 @@ def main(model_path, video_path, track_points="bbox"):
 
     path_drawer = Paths(attenuation=0.05)
 
-    for frame in video:
+    for frame_num, frame in enumerate(video):
+        # grab info on first frame
+        if frame_num == 0:
+            # these will be stored in ROI and COORDINATES afterwards
+            get_roi(frame)
+            get_coordinates(frame)
+
         # get detections from model inference
         yolo_detections = model.predict(
             frame,
@@ -116,6 +79,7 @@ def main(model_path, video_path, track_points="bbox"):
             device=device,
             conf=CONF_THRESHOLD,
             iou=IOU_THRESHOLD,
+            verbose=False,
         )
 
         # convert to format norfair can use
@@ -125,6 +89,12 @@ def main(model_path, video_path, track_points="bbox"):
 
         # update tracker with new detections
         tracked_objects = tracker.update(detections=detections)
+        print_objects_as_table(tracked_objects)  # for testing ..............
+
+        # NOTE: check if I should be doing this
+        if len(tracked_objects) > 0:
+            # TODO: update vehicle states using VehicleInstanceTracker
+            pass
 
         # drawing stuff
         if track_points == "centroid":
@@ -162,7 +132,7 @@ if __name__ == "__main__":
         "--model",
         type=str,
         help="model weight filename in form <filename>.pt",
-        default="demo_weights.pt",
+        default="small_training.pt",
     )
     parser.add_argument(
         "--video",
@@ -175,4 +145,4 @@ if __name__ == "__main__":
     video_path = args.video
     track_points = args.track_points
 
-    main(model_path, video_path, track_points)
+    process(model_path, video_path, track_points)
