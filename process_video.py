@@ -25,6 +25,11 @@ from ultralytics import YOLO
 from config import ROOT_DIR
 from utils.tracking import yolo_detections_to_norfair_detections, merge_frames
 from utils.user_input import get_roi, draw_roi, get_coordinates, ROI, COORDINATES
+from utils.drawing import (
+    draw_detector_predictions,
+    draw_tracker_predictions,
+    draw_tracklets,
+)
 
 # NOTE: play with these constants, or try an algorithm that somehow finds the
 # best results once I have a ground truth set up
@@ -42,14 +47,23 @@ CONF_THRESHOLD = 0.45
 IOU_THRESHOLD = 0.45
 
 
-def process(model_path, video_path, track_points="bbox"):
+def process(
+    model_path,
+    video_path,
+    track_points="bbox",
+    show_detector_predictions=True,
+    show_tracker_predictions=True,
+    show_tracklets=True,
+    save_video=False,
+):
     # automatically set device for inferencing
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"using device {device}")
 
     model = YOLO(model_path, task="detect")
 
-    video = Video(input_path=video_path)
+    video_output_path = ROOT_DIR / "output_videos"
+    video = Video(input_path=video_path, output_path=str(video_output_path))
 
     distance_function = "iou" if track_points == "bbox" else "euclidean"
     distance_threshold = (
@@ -97,25 +111,17 @@ def process(model_path, video_path, track_points="bbox"):
             pass
 
         # drawing stuff
-        if track_points == "centroid":
-            norfair.draw_points(frame, tracked_objects, thickness=2)
-            norfair.draw_points(
-                frame, detections, draw_labels=True, draw_scores=True, thickness=2
-            )
-            tracklet_frame = path_drawer.draw(frame, tracked_objects)
-        elif track_points == "bbox":
-            norfair.draw_boxes(frame, tracked_objects, thickness=2)
-            norfair.draw_boxes(
-                frame, detections, draw_labels=True, draw_scores=True, thickness=2
-            )
-            tracklet_frame = path_drawer.draw(frame, tracked_objects)
+        if show_detector_predictions:
+            draw_detector_predictions(frame, detections, track_points)
+        if show_tracker_predictions:
+            draw_tracker_predictions(frame, tracked_objects, track_points)
+        if show_tracklets:
+            draw_tracklets(frame, path_drawer, tracked_objects)
 
-        if len(tracked_objects) == 0:
-            tracklet_frame = np.zeros_like(frame, dtype=np.uint8)
-        output_frame = merge_frames(tracklet_frame, frame)
+        if save_video:
+            video.write(frame)
 
-        # video.write(output_frame)
-        cv.imshow("output", output_frame)
+        cv.imshow("output", frame)
         if cv.waitKey(10) == ord("q"):
             break
 
@@ -140,9 +146,39 @@ if __name__ == "__main__":
         help="video filename in form <filename>.<ext>",
         default="test_videos/short_video.mp4",
     )
+    parser.add_argument(
+        "--show_detector_predictions",
+        help="show detector predictions on video frames",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--show_tracker_predictions",
+        help="show tracker predictions on video frames",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--show_tracklets",
+        help="show object tracklet paths on video frames",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--save_video", help="write video to a file", action="store_true"
+    )
     args = parser.parse_args()
     model_path = args.model
     video_path = args.video
     track_points = args.track_points
+    show_detector_predictions = args.show_detector_predictions
+    show_tracker_predictions = args.show_tracker_predictions
+    show_tracklets = args.show_tracklets
+    save_video = args.save_video
 
-    process(model_path, video_path, track_points)
+    process(
+        model_path,
+        video_path,
+        track_points,
+        show_detector_predictions,
+        show_tracker_predictions,
+        show_tracklets,
+        save_video,
+    )

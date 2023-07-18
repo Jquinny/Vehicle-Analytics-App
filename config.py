@@ -26,6 +26,7 @@ CLASSIFIER_NUM2NAME = {
 CLASSIFIER_NAME2NUM = {val: key for key, val in CLASSIFIER_NUM2NAME.items()}
 
 VEHICLE_DATA_COLUMNS = {
+    "video_hash": "Int64",
     "class": "string",
     "confidence": "Float64",
     "entry_pos": "string",
