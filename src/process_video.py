@@ -6,24 +6,30 @@ TODO:
 - check out position and velocity estimate properties of the TrackedObject class
 for estimating entry and exit positions as well as the speed (velocity might
 be an issue because the property is in absolute coordinates)
+- add ability to select detector model TYPE (yolov8, rt-detr, efficientdet, etc.)
 - implement a ReID function for when kalman filter estimates fail (check out the
 data parameter of Detection objects for this)
 """
 
 import argparse
 import os
+import random
 
 import numpy as np
 import torch
 
 import cv2 as cv
 import norfair
-from norfair import Detection, Paths, Tracker, Video
+from norfair import Paths, Tracker, Video
 from norfair.utils import print_objects_as_table  # for testing ............
 from ultralytics import YOLO
 
-from config import ROOT_DIR
-from utils.tracking import yolo_detections_to_norfair_detections, merge_frames
+from config import ROOT_DIR, CLASSIFIER_NAME2NUM
+from src.tracking import (
+    yolo_detections_to_norfair_detections,
+    merge_frames,
+    VehicleInstanceTracker,
+)
 from utils.user_input import get_roi, draw_roi, get_coordinates, ROI, COORDINATES
 from utils.drawing import (
     draw_detector_predictions,
@@ -60,6 +66,9 @@ def process(
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"using device {device}")
 
+    # TODO: use model factories here for classifier and detector. Should take in
+    # argument that says what detection model and what classifier model as well
+    # as weights
     model = YOLO(model_path, task="detect")
 
     video_output_path = ROOT_DIR / "output_videos"
@@ -72,9 +81,8 @@ def process(
         else DISTANCE_THRESHOLD_CENTROID
     )
 
-    tracker = Tracker(
-        distance_function=distance_function,
-        distance_threshold=distance_threshold,
+    vehicle_tracker = VehicleInstanceTracker(
+        distance_function=distance_function, distance_threshold=distance_threshold
     )
 
     path_drawer = Paths(attenuation=0.05)
@@ -83,11 +91,11 @@ def process(
         # grab info on first frame
         if frame_num == 0:
             # these will be stored in ROI and COORDINATES afterwards
-            get_roi(frame)
-            get_coordinates(frame)
+            roi = get_roi(frame)
+            coordinates = get_coordinates(frame)
 
         # get detections from model inference
-        yolo_detections = model.predict(
+        detections = model.predict(
             frame,
             imgsz=IMG_SZ,
             device=device,
@@ -97,22 +105,28 @@ def process(
         )
 
         # convert to format norfair can use
-        detections = yolo_detections_to_norfair_detections(
-            yolo_detections, track_points=track_points
+        norfair_detections = yolo_detections_to_norfair_detections(
+            detections, track_points=track_points
         )
 
-        # update tracker with new detections
-        tracked_objects = tracker.update(detections=detections)
-        print_objects_as_table(tracked_objects)  # for testing ..............
+        # TODO: do classification before tracking I think. This way we can add
+        # the class label and the confidence to the detection data for vehicle
+        # state updating NOTE: have to do it afterwards because the class label
+        # dictates if the tracker matches or not
 
-        # NOTE: check if I should be doing this
+        # update tracker with new detections
+        tracked_objects = vehicle_tracker.update(norfair_detections)
+        # print_objects_as_table(tracked_objects)  # for testing ..............
+
+        # NOTE: check if I should be doing this every time no matter what or only
+        # when tracked_objects has objects in it
         if len(tracked_objects) > 0:
             # TODO: update vehicle states using VehicleInstanceTracker
             pass
 
         # drawing stuff
         if show_detector_predictions:
-            draw_detector_predictions(frame, detections, track_points)
+            draw_detector_predictions(frame, norfair_detections, track_points)
         if show_tracker_predictions:
             draw_tracker_predictions(frame, tracked_objects, track_points)
         if show_tracklets:

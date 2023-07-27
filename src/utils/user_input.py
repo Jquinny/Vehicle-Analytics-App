@@ -77,12 +77,13 @@ def get_roi(frame, roi_file: str = None):
     #     with open(roi_file) as f:
     #         ROI = json.load(f)
 
-    return
+    return ROI
 
 
 def get_coordinates(frame):
     global COORDINATES
     warnings.warn("\nget_coordinates(frame) is not implemented yet")
+    return COORDINATES
 
 
 def draw_coordinates(frame):
