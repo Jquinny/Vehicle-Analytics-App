@@ -31,8 +31,8 @@ VEHICLE_DATA_COLUMNS = {
     "num_of_frames": "UInt64",
     "class": "string",
     "confidence": "Float64",
-    "entry_pos": "string",
-    "exit_pos": "string",
+    "entry_direction": "string",
+    "exit_direction": "string",
     "speed": "Float64",
     "color": "string",
 }

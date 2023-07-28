@@ -45,6 +45,19 @@ class YOLOv8Classifier(Classifier):
         pass
 
 
+class ResNetClassifier(Classifier):
+    """ResNet classifier"""
+
+    def __init__(self, params: dict = None):
+        self.params = params
+
+    def setup_model(self):
+        pass
+
+    def inference(self, img: np.ndarray) -> Tuple[int, float]:
+        pass
+
+
 class ViTClassifier(Classifier):
     """Visual Transformer classifier"""
 

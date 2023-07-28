@@ -14,11 +14,13 @@ data parameter of Detection objects for this)
 import argparse
 import os
 import random
+import time
 
 import numpy as np
 import torch
 
 import cv2 as cv
+import easyocr
 import norfair
 from norfair import Paths, Tracker, Video
 from norfair.utils import print_objects_as_table  # for testing ............
@@ -36,6 +38,8 @@ from utils.drawing import (
     draw_tracker_predictions,
     draw_tracklets,
 )
+from utils.image import parse_timestamp
+from utils.video import VideoHandler
 
 # NOTE: play with these constants, or try an algorithm that somehow finds the
 # best results once I have a ground truth set up
@@ -71,9 +75,14 @@ def process(
     # as weights
     model = YOLO(model_path, task="detect")
 
-    video_output_path = ROOT_DIR / "output_videos"
-    video = Video(input_path=video_path, output_path=str(video_output_path))
+    # setup ocr model
+    reader = easyocr.Reader(["en"])
 
+    # setting up the video for reading/writing frames
+    video_output_dir = str(ROOT_DIR / "output_videos")
+    video_handler = VideoHandler(input_path=video_path, output_dir=video_output_dir)
+
+    # setting the distance parameters for the tracker
     distance_function = "iou" if track_points == "bbox" else "euclidean"
     distance_threshold = (
         DISTANCE_THRESHOLD_BBOX
@@ -81,18 +90,26 @@ def process(
         else DISTANCE_THRESHOLD_CENTROID
     )
 
+    # set up vehicle tracker
     vehicle_tracker = VehicleInstanceTracker(
         distance_function=distance_function, distance_threshold=distance_threshold
     )
 
+    # utility for drawing tracklets
     path_drawer = Paths(attenuation=0.05)
 
-    for frame_num, frame in enumerate(video):
-        # grab info on first frame
-        if frame_num == 0:
-            # these will be stored in ROI and COORDINATES afterwards
-            roi = get_roi(frame)
-            coordinates = get_coordinates(frame)
+    # grab roi, direction coordinates, and timestamp
+    frame = video_handler.get_frame(0)
+    roi = get_roi(frame)
+    direction_coords = get_coordinates(frame)
+    initial_datetime = parse_timestamp(frame, reader)
+    print(roi)
+    print(direction_coords)
+    print(initial_datetime)
+
+    for frame_num, frame in enumerate(video_handler):
+        print(video_handler.current_frame)
+        print(video_handler.get_time_from_frame(video_handler.current_frame))
 
         # get detections from model inference
         detections = model.predict(
@@ -115,14 +132,7 @@ def process(
         # dictates if the tracker matches or not
 
         # update tracker with new detections
-        tracked_objects = vehicle_tracker.update(norfair_detections)
-        # print_objects_as_table(tracked_objects)  # for testing ..............
-
-        # NOTE: check if I should be doing this every time no matter what or only
-        # when tracked_objects has objects in it
-        if len(tracked_objects) > 0:
-            # TODO: update vehicle states using VehicleInstanceTracker
-            pass
+        tracked_objects = vehicle_tracker.update(frame, norfair_detections)
 
         # drawing stuff
         if show_detector_predictions:
@@ -133,10 +143,10 @@ def process(
             draw_tracklets(frame, path_drawer, tracked_objects)
 
         if save_video:
-            video.write(frame)
+            video_handler.write_frame_to_video(frame)
 
-        cv.imshow("output", frame)
-        if cv.waitKey(10) == ord("q"):
+        if video_handler.show(frame, 10) == ord("q"):
+            video_handler.cleanup()
             break
 
 
