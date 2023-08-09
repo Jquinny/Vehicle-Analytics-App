@@ -1,3 +1,6 @@
+"""NOTE: possibly do all necessary detection format conversions inside each
+class so I don't have to do them separately in the tracking.py file"""
+
 from abc import ABC, abstractmethod
 from typing import List
 
@@ -25,6 +28,7 @@ class YOLOv8Detector(Detector):
 
     def setup_model(self):
         from ultralytics import YOLO
+
         # TODO: set up model somehow
 
     def inference(self, img: np.ndarray) -> List[norfair.tracker.Detection]:

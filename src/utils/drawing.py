@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import cv2 as cv
 import norfair
@@ -6,7 +6,26 @@ import numpy as np
 
 
 def _merge_frames(track_mask: np.ndarray, video_frame: np.ndarray):
+    """combine the mask created by the norfair path drawer and the video frame
+    in order to draw correct tracklets
+    """
     return cv.addWeighted(track_mask, 1, video_frame, 1, 0)
+
+
+# NOTE: no clue if this is actually right but it kind of looks like it may be
+def draw_vector(
+    img: np.ndarray,
+    start_pt: Tuple[int, int],
+    direction_vec: Tuple[float, float],
+    vec_len: int = 100,
+):
+    """helper for drawing vectors from a starting point in the direction specified
+    in direction_vec.
+    """
+    theta = np.arctan2(direction_vec[1], direction_vec[0])
+    x = int(vec_len * np.cos(theta) + start_pt[0])
+    y = int(vec_len * np.sin(theta) + start_pt[1])
+    cv.arrowedLine(img, start_pt, (x, y), (0, 255, 0))
 
 
 def draw_tracker_predictions(

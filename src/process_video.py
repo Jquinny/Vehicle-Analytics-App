@@ -29,24 +29,22 @@ from ultralytics import YOLO
 from config import ROOT_DIR, CLASSIFIER_NAME2NUM
 from src.tracking import (
     yolo_detections_to_norfair_detections,
-    merge_frames,
     VehicleInstanceTracker,
 )
-from utils.user_input import get_roi, draw_roi, get_coordinates, ROI, COORDINATES
-from utils.drawing import (
+from src.utils.user_input import get_roi, draw_roi, get_coordinates, ROI, COORDINATES
+from src.utils.drawing import (
     draw_detector_predictions,
     draw_tracker_predictions,
     draw_tracklets,
 )
-from utils.image import parse_timestamp
-from utils.video import VideoHandler
+from src.utils.image import parse_timestamp
+from src.utils.video import VideoHandler
 
 # NOTE: play with these constants, or try an algorithm that somehow finds the
 # best results once I have a ground truth set up
 
 # tracking constants
 DISTANCE_THRESHOLD_BBOX: float = 0.7
-DISTANCE_THRESHOLD_CENTROID: int = 30
 MAX_DISTANCE: int = 10000
 LIFESPAN = 15  # max number of frames a tracked object can surive without a match
 DETECTION_THRESHOLD = 0  # may be redundant if I already have CONF_THRESHOLD
@@ -60,7 +58,6 @@ IOU_THRESHOLD = 0.45
 def process(
     model_path,
     video_path,
-    track_points="bbox",
     show_detector_predictions=True,
     show_tracker_predictions=True,
     show_tracklets=True,
@@ -83,17 +80,8 @@ def process(
     video_handler = VideoHandler(input_path=video_path, output_dir=video_output_dir)
 
     # setting the distance parameters for the tracker
-    distance_function = "iou" if track_points == "bbox" else "euclidean"
-    distance_threshold = (
-        DISTANCE_THRESHOLD_BBOX
-        if track_points == "bbox"
-        else DISTANCE_THRESHOLD_CENTROID
-    )
-
-    # set up vehicle tracker
-    vehicle_tracker = VehicleInstanceTracker(
-        distance_function=distance_function, distance_threshold=distance_threshold
-    )
+    distance_function = "iou"
+    distance_threshold = DISTANCE_THRESHOLD_BBOX
 
     # utility for drawing tracklets
     path_drawer = Paths(attenuation=0.05)
@@ -107,10 +95,17 @@ def process(
     print(direction_coords)
     print(initial_datetime)
 
-    for frame_num, frame in enumerate(video_handler):
-        print(video_handler.current_frame)
-        print(video_handler.get_time_from_frame(video_handler.current_frame))
+    # set up vehicle tracker
+    vehicle_tracker = VehicleInstanceTracker(
+        video_handler=video_handler,
+        roi=roi,
+        direction_coords=direction_coords,
+        initial_datetime=initial_datetime,
+        distance_function=distance_function,
+        distance_threshold=distance_threshold,
+    )
 
+    for frame in video_handler:
         # get detections from model inference
         detections = model.predict(
             frame,
@@ -121,10 +116,12 @@ def process(
             verbose=False,
         )
 
-        # convert to format norfair can use
-        norfair_detections = yolo_detections_to_norfair_detections(
-            detections, track_points=track_points
-        )
+        # TODO: parse detections to get rid of ones not in ROI and ones with low
+        # confidence (if not already done in predict function)
+
+        # convert to format norfair can use NOTE: eventually this gets done inside
+        # of the model inference function
+        norfair_detections = yolo_detections_to_norfair_detections(detections)
 
         # TODO: do classification before tracking I think. This way we can add
         # the class label and the confidence to the detection data for vehicle
@@ -136,9 +133,9 @@ def process(
 
         # drawing stuff
         if show_detector_predictions:
-            draw_detector_predictions(frame, norfair_detections, track_points)
+            draw_detector_predictions(frame, norfair_detections, track_points="bbox")
         if show_tracker_predictions:
-            draw_tracker_predictions(frame, tracked_objects, track_points)
+            draw_tracker_predictions(frame, tracked_objects, track_points="bbox")
         if show_tracklets:
             draw_tracklets(frame, path_drawer, tracked_objects)
 
@@ -152,12 +149,12 @@ def process(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Track objects in a video.")
-    parser.add_argument(
-        "--track-points",
-        type=str,
-        default="bbox",
-        help="Track points: 'centroid' or 'bbox'",
-    )
+    # parser.add_argument(
+    #     "--track-points",
+    #     type=str,
+    #     default="bbox",
+    #     help="Track points: 'centroid' or 'bbox'",
+    # )
     parser.add_argument(
         "--model",
         type=str,
@@ -191,7 +188,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     model_path = args.model
     video_path = args.video
-    track_points = args.track_points
     show_detector_predictions = args.show_detector_predictions
     show_tracker_predictions = args.show_tracker_predictions
     show_tracklets = args.show_tracklets
@@ -200,7 +196,6 @@ if __name__ == "__main__":
     process(
         model_path,
         video_path,
-        track_points,
         show_detector_predictions,
         show_tracker_predictions,
         show_tracklets,

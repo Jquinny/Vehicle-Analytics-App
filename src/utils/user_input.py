@@ -10,7 +10,7 @@ ROI = []
 COORDINATES = {}
 
 
-def draw_roi(img, close=False):
+def draw_roi(img: np.ndarray, close: bool = False):
     """Draw ROI polygon onto image"""
     global ROI
 
@@ -27,7 +27,7 @@ def get_points(event, x, y, flags, images):
     global ROI
 
     if event == cv.EVENT_LBUTTONDOWN:
-        ROI.append([x, y])
+        ROI.append((x, y))
         draw_roi(images["copy"])
 
     if event == cv.EVENT_RBUTTONDOWN:
@@ -39,7 +39,7 @@ def get_points(event, x, y, flags, images):
     return
 
 
-def get_roi(frame, roi_file: str = None):
+def get_roi(frame: np.ndarray, roi_file: str = None):
     global ROI
 
     # get roi from user mouse input if no input roi json file
@@ -80,12 +80,12 @@ def get_roi(frame, roi_file: str = None):
     return ROI
 
 
-def get_coordinates(frame):
+def get_coordinates(frame: np.ndarray):
     global COORDINATES
     warnings.warn("\nget_coordinates(frame) is not implemented yet")
     return COORDINATES
 
 
-def draw_coordinates(frame):
+def draw_coordinates(frame: np.ndarray):
     global COORDINATES
     warnings.warn("\ndraw_coordinates(frame) is ")

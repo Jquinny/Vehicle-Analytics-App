@@ -1,5 +1,7 @@
 from pathlib import Path
 
+# TODO FIGURE OUT HOW TO DEAL WITH MULTIPLE DIFFERENT MODEL CLASSES
+
 ROOT_DIR = Path(__file__).parent
 
 # detector labels and their human readable names
@@ -25,9 +27,11 @@ CLASSIFIER_NUM2NAME = {
 }
 CLASSIFIER_NAME2NUM = {val: key for key, val in CLASSIFIER_NUM2NAME.items()}
 
+# TODO: UPDATE THESE
 VEHICLE_DATA_COLUMNS = {
-    "time_of_day": "string",
+    "timestamp": "string",
     "video_timestamp": "string",
+    "initial_frame_index": "UInt64",
     "num_of_frames": "UInt64",
     "class": "string",
     "confidence": "Float64",
