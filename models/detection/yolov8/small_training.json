@@ -1,0 +1,26 @@
+{
+    "model_filename": "small_training.pt",
+    "architecture": "yolov8",
+    "task": "detect",
+    "classes": {
+        "LT": 0,
+        "TrOnly": 1,
+        "TrChass": 2,
+        "TrFlat": 3
+    },
+    "precision": 0.9,
+    "recall": 0.83,
+    "mAP": 0.93,
+    "num_of_params": 12345,
+    "hyperparams": {
+        "imgsz": 512,
+        "learning_rate": 0.01,
+        "optimizer": "Adam"
+    },
+    "setup_params": null,
+    "inference_params": {
+        "imgsz": 512,
+        "conf": 0.45,
+        "iou": 0.7
+    }
+}

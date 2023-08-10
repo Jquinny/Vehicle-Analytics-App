@@ -1,14 +1,6 @@
-"""Main script for running the full truck analysis pipeline.
+"""Main script for running the full vehicle analysis pipeline.
 
-TODO:
-- add either ROI input as well as NSEW directions or just NSEW directions
-- implement data aggregation through lifecycle of vehicle
-- check out position and velocity estimate properties of the TrackedObject class
-for estimating entry and exit positions as well as the speed (velocity might
-be an issue because the property is in absolute coordinates)
-- add ability to select detector model TYPE (yolov8, rt-detr, efficientdet, etc.)
-- implement a ReID function for when kalman filter estimates fail (check out the
-data parameter of Detection objects for this)
+TODO: setup so it works with new model_selector class
 """
 
 import argparse
@@ -117,7 +109,7 @@ def process(
         )
 
         # TODO: parse detections to get rid of ones not in ROI and ones with low
-        # confidence (if not already done in predict function)
+        # confidence (if not already done in inference function)
 
         # convert to format norfair can use NOTE: eventually this gets done inside
         # of the model inference function
@@ -149,17 +141,11 @@ def process(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Track objects in a video.")
-    # parser.add_argument(
-    #     "--track-points",
-    #     type=str,
-    #     default="bbox",
-    #     help="Track points: 'centroid' or 'bbox'",
-    # )
     parser.add_argument(
         "--model",
         type=str,
         help="model weight filename in form <filename>.pt",
-        default="small_training.pt",
+        default="models/detection/yolov8/small_training.pt",
     )
     parser.add_argument(
         "--video",
