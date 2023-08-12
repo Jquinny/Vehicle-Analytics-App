@@ -11,59 +11,7 @@ from webcolors import (
     CSS3_HEX_TO_NAMES,
     hex_to_rgb,
 )
-
-
-def bbox_center(x1: int, y1: int, x2: int, y2: int) -> Tuple[int, int]:
-    """computes the center of a bounding box using top left and bottom right
-    corner coordinates.
-
-    Arguments
-    ---------
-    x1 (int):
-        top left bounding box corner x-coord
-    y1 (int):
-        top left bounding box corner y-coord
-    x2 (int):
-        bottom right bounding box corner x-coord
-    y2 (int):
-        bottom right bounding box corner y-coord
-
-    Returns
-    -------
-    int:
-        x coord of the center of the bounding box
-    int:
-        y coord of the center of the bounding box
-    """
-
-    center_x = int(x1 + (x2 - x1) // 2)
-    center_y = int(y1 + (y2 - y1) // 2)
-
-    return center_x, center_y
-
-
-def bbox_area(x1: int, y1: int, x2: int, y2: int) -> int:
-    """computes the area of a bounding box using top left and bottom right
-    corner coordinates.
-
-    Arguments
-    ---------
-    x1 (int):
-        top left bounding box corner x-coord
-    y1 (int):
-        top left bounding box corner y-coord
-    x2 (int):
-        bottom right bounding box corner x-coord
-    y2 (int):
-        bottom right bounding box corner y-coord
-
-    Returns
-    -------
-    int:
-        bounding box area in terms of number of pixels
-    """
-
-    return int(x2 - x1) * int(y2 - y1)
+from src.utils.geometry import bbox_center
 
 
 def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
@@ -179,10 +127,3 @@ def compute_avg_color(
     r = int(np.mean(img[new_y1:new_y2, new_x1:new_x2, 2]))
 
     return (r, g, b)
-
-
-def check_overlap(
-    region1: List[Tuple[int, int]], region2: List[Tuple[int, int]], pct: float = 0.30
-):
-    # TODO: implement the overlap check for bounding boxes and region of interest
-    pass

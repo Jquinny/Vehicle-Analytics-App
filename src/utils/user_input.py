@@ -22,7 +22,7 @@ def draw_roi(img: np.ndarray, close: bool = False):
     return
 
 
-def get_points(event, x, y, flags, images):
+def get_roi_points(event, x, y, flags, images):
     """Get list of points for ROI from user mouse input"""
     global ROI
 
@@ -41,28 +41,29 @@ def get_points(event, x, y, flags, images):
 
 def get_roi(frame: np.ndarray, roi_file: str = None):
     global ROI
+    frame_title = "Region of Interest Extraction"
 
     # get roi from user mouse input if no input roi json file
     if roi_file is None:
         images = {"original": frame, "copy": frame.copy()}
 
         # grab ROI from user
-        cv.namedWindow("first frame")
-        cv.setMouseCallback("first frame", get_points, images)
+        cv.namedWindow(frame_title)
+        cv.setMouseCallback(frame_title, get_roi_points, images)
         print("\nPress enter to connect final points.")
         print(
             "Press enter again if satisfied. Press any other key to continue editing.\n"
         )
         while True:
-            cv.imshow("first frame", images["copy"])
+            cv.imshow(frame_title, images["copy"])
             key = cv.waitKey(10)
             if key == ord("\r"):  # show full polygon when user presses enter
                 images["copy"] = images["original"].copy()
                 draw_roi(images["copy"], True)
-                cv.imshow("first frame", images["copy"])
+                cv.imshow(frame_title, images["copy"])
                 key = cv.waitKey(0)
                 if key == ord("\r"):
-                    cv.destroyWindow("first frame")
+                    cv.destroyWindow(frame_title)
                     break
 
     #     # save ROI to json if user wants

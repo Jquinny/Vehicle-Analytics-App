@@ -12,6 +12,16 @@ def _merge_frames(track_mask: np.ndarray, video_frame: np.ndarray):
     return cv.addWeighted(track_mask, 1, video_frame, 1, 0)
 
 
+def draw_polygon(img: np.ndarray, polygon: List[Tuple[int, int]]):
+    """Draw polygon on image"""
+
+    for point in polygon:
+        cv.circle(img, point, 3, (0, 255, 0), 3)
+    cv.polylines(img, [polygon], True, (0, 255, 0), 3)
+
+    return
+
+
 # NOTE: no clue if this is actually right but it kind of looks like it may be
 def draw_vector(
     img: np.ndarray,

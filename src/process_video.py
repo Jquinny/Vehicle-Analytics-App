@@ -1,11 +1,12 @@
 """Main script for running the full vehicle analysis pipeline.
 
 TODO: setup so it works with new model_selector class
+-   change interface so that the process() function takes in a task object,
+    this task object will have all necessary info such as instantiated models
+    and anything else required
 """
 
 import argparse
-import os
-import random
 import time
 
 import numpy as np
@@ -13,24 +14,23 @@ import torch
 
 import cv2 as cv
 import easyocr
-import norfair
-from norfair import Paths, Tracker, Video
+from norfair import Paths
 from norfair.utils import print_objects_as_table  # for testing ............
-from ultralytics import YOLO
 
 from config import ROOT_DIR, CLASSIFIER_NAME2NUM
-from src.tracking import (
-    yolo_detections_to_norfair_detections,
-    VehicleInstanceTracker,
-)
+from src.tracking import VehicleInstanceTracker
+from src.models.base_model import BaseModel
 from src.utils.user_input import get_roi, draw_roi, get_coordinates, ROI, COORDINATES
 from src.utils.drawing import (
+    draw_polygon,
     draw_detector_predictions,
     draw_tracker_predictions,
     draw_tracklets,
 )
+from src.utils.geometry import check_overlap, bbox_to_polygon
 from src.utils.image import parse_timestamp
 from src.utils.video import VideoHandler
+from src.model_selector import ModelSelector
 
 # NOTE: play with these constants, or try an algorithm that somehow finds the
 # best results once I have a ground truth set up
@@ -46,30 +46,30 @@ IMG_SZ = 512
 CONF_THRESHOLD = 0.45
 IOU_THRESHOLD = 0.45
 
+ROI_OVERLAP_PCT = 0.15
+
 
 def process(
-    model_path,
-    video_path,
-    show_detector_predictions=True,
-    show_tracker_predictions=True,
-    show_tracklets=True,
-    save_video=False,
+    model: BaseModel,
+    video_handler: VideoHandler,
+    save_video: bool = False,
+    debug: bool = False,
 ):
+    """Main video processing function. accumulates vehicle data and writes out
+    the video with bounding boxes, class names, and confidences, as well as
+    a .json file with video metadata and a .csv file with all of the vehicle
+    information.
+
+    Arguments
+    ---------
+    """
     # automatically set device for inferencing
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    print(f"using device {device}")
-
-    # TODO: use model factories here for classifier and detector. Should take in
-    # argument that says what detection model and what classifier model as well
-    # as weights
-    model = YOLO(model_path, task="detect")
+    if debug:
+        print(f"using device {device}")
 
     # setup ocr model
     reader = easyocr.Reader(["en"])
-
-    # setting up the video for reading/writing frames
-    video_output_dir = str(ROOT_DIR / "output_videos")
-    video_handler = VideoHandler(input_path=video_path, output_dir=video_output_dir)
 
     # setting the distance parameters for the tracker
     distance_function = "iou"
@@ -99,48 +99,46 @@ def process(
 
     for frame in video_handler:
         # get detections from model inference
-        detections = model.predict(
-            frame,
-            imgsz=IMG_SZ,
-            device=device,
-            conf=CONF_THRESHOLD,
-            iou=IOU_THRESHOLD,
-            verbose=False,
-        )
+        # detections = model.predict(
+        #     frame,
+        #     imgsz=IMG_SZ,
+        #     device=device,
+        #     conf=CONF_THRESHOLD,
+        #     iou=IOU_THRESHOLD,
+        #     verbose=False,
+        # )
 
-        # TODO: parse detections to get rid of ones not in ROI and ones with low
-        # confidence (if not already done in inference function)
-
-        # convert to format norfair can use NOTE: eventually this gets done inside
-        # of the model inference function
-        norfair_detections = yolo_detections_to_norfair_detections(detections)
-
-        # TODO: do classification before tracking I think. This way we can add
-        # the class label and the confidence to the detection data for vehicle
-        # state updating NOTE: have to do it afterwards because the class label
-        # dictates if the tracker matches or not
+        # # convert to format norfair can use NOTE: eventually this gets done inside
+        # # of the model inference function
+        # norfair_detections = yolo_detections_to_norfair_detections(detections)
+        norfair_detections = model.inference(frame, device=device)
+        valid_detections = []
+        for detection in norfair_detections:
+            top_left, top_right = detection.points[0], detection.points[1]
+            if check_overlap(np.array(roi), np.array(bbox_to_polygon(*top_left, *top_right))):
+                valid_detections.append(detection)
 
         # update tracker with new detections
-        tracked_objects = vehicle_tracker.update(frame, norfair_detections)
+        tracked_objects = vehicle_tracker.update(frame, valid_detections)
 
         # drawing stuff
-        if show_detector_predictions:
-            draw_detector_predictions(frame, norfair_detections, track_points="bbox")
-        if show_tracker_predictions:
-            draw_tracker_predictions(frame, tracked_objects, track_points="bbox")
-        if show_tracklets:
-            draw_tracklets(frame, path_drawer, tracked_objects)
+        draw_polygon(frame, np.array(roi))
+        draw_detector_predictions(frame, norfair_detections, track_points="bbox")
+        draw_tracker_predictions(frame, tracked_objects, track_points="bbox")
+        draw_tracklets(frame, path_drawer, tracked_objects)
 
         if save_video:
             video_handler.write_frame_to_video(frame)
 
-        if video_handler.show(frame, 10) == ord("q"):
+        if debug and video_handler.show(frame, 10) == ord("q"):
             video_handler.cleanup()
             break
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Track objects in a video.")
+    parser = argparse.ArgumentParser(
+        description="Track vehicles in video and obtain data about them."
+    )
     parser.add_argument(
         "--model",
         type=str,
@@ -154,36 +152,32 @@ if __name__ == "__main__":
         default="test_videos/short_video.mp4",
     )
     parser.add_argument(
-        "--show_detector_predictions",
-        help="show detector predictions on video frames",
+        "--debug",
+        help="show frames and print statements while processing",
         action="store_true",
     )
-    parser.add_argument(
-        "--show_tracker_predictions",
-        help="show tracker predictions on video frames",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--show_tracklets",
-        help="show object tracklet paths on video frames",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--save_video", help="write video to a file", action="store_true"
-    )
+    parser.add_argument("--save", help="write video to a file", action="store_true")
     args = parser.parse_args()
     model_path = args.model
     video_path = args.video
-    show_detector_predictions = args.show_detector_predictions
-    show_tracker_predictions = args.show_tracker_predictions
-    show_tracklets = args.show_tracklets
-    save_video = args.save_video
+    debug = args.debug
+    save = args.save
 
-    process(
-        model_path,
-        video_path,
-        show_detector_predictions,
-        show_tracker_predictions,
-        show_tracklets,
-        save_video,
-    )
+    # # TODO: use model factories here for models
+    # model = YOLO(model_path, task="detect")
+
+    model_selector = ModelSelector(ROOT_DIR / "models/")
+    valid_list = model_selector.search("detect")
+    print(valid_list)
+    metadata = valid_list[0]
+    model = model_selector.generate_model(metadata)
+
+    # setting up the video for reading/writing frames
+    video_output_dir = str(ROOT_DIR / "output_videos")
+    video_handler = VideoHandler(input_path=video_path, output_dir=video_output_dir)
+
+    import time  # NOTE: FOR TESTING ...................................
+
+    start = time.time()
+    process(model, video_handler, save, debug)
+    print(time.time() - start)

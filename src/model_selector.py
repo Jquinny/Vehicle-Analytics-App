@@ -26,12 +26,10 @@ class ModelSelector:
     all metadata files are in the same directory as the model they correspond
     to
 
-    TODO: implement roboflow integration in case user's want to use a model
-    being hosted on roboflow
     """
 
     def __init__(self, model_base: Path):
-        """initializes model selector with all model metadata filepaths
+        """initializes model selector with all model metadata
 
         Arguments
         ---------
