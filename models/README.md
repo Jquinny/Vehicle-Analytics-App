@@ -4,6 +4,9 @@ This directory contains all trained models as well as a metadata file associated
 with each one. Directory structure is split according to task and then according
 to model architecture.
 
+**Note:** it is assumed that all metadata files are in the same directory as
+their respective model filename
+
 ### JSON Format
 
 ```
