@@ -132,9 +132,9 @@ class VideoHandler:
 
     #     # TODO: Implement this functionality
 
-    def get_output_path(self) -> str:
+    def get_output_path(self) -> Path | None:
         if self._output_dir:
-            return str(Path(self._output_dir) / self._output_video_file)
+            return Path(self._output_dir) / self._output_video_file
         else:
             return None
 

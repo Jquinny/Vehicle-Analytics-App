@@ -1,8 +1,10 @@
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import cv2 as cv
 import norfair
 import numpy as np
+
+from src.utils.geometry import Point, Poly
 
 
 def _merge_frames(track_mask: np.ndarray, video_frame: np.ndarray):
@@ -12,14 +14,60 @@ def _merge_frames(track_mask: np.ndarray, video_frame: np.ndarray):
     return cv.addWeighted(track_mask, 1, video_frame, 1, 0)
 
 
-def draw_polygon(img: np.ndarray, polygon: List[Tuple[int, int]]):
-    """Draw polygon on image"""
+def draw_roi(img: np.ndarray, roi: Poly, close: bool = False):
+    """Draw ROI polygon onto image"""
+    if roi:
+        for pt in roi:
+            cv.circle(img, pt.to_int().as_tuple(), 3, (0, 255, 0), 3)
+        cv.polylines(
+            img,
+            [np.array([pt.as_tuple() for pt in roi.to_int()])],
+            close,
+            (0, 255, 0),
+            2,
+        )
 
-    for point in polygon:
-        cv.circle(img, point, 3, (0, 255, 0), 3)
-    cv.polylines(img, [polygon], True, (0, 255, 0), 3)
 
-    return
+def draw_coordinates(
+    frame: np.ndarray, coordinates: List[Point], coord_map: Dict[int, str]
+):
+    if coordinates:
+        for idx, pt in enumerate(coordinates):
+            text = coord_map[idx]
+            center = pt.to_int().as_tuple()
+            radius = 5
+            cv.circle(frame, center, radius, (0, 0, 255), -1)
+
+            text_color = (255, 255, 255)  # White text
+            font = cv.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.5
+            text_size = cv.getTextSize(text, font, font_scale, 1)[0]
+
+            rect_size = (text_size[0] + 10, text_size[1] + 10)  # Square around the text
+            rect_top_left = (
+                center[0] - rect_size[0] // 2,
+                center[1] - radius - rect_size[1],
+            )
+            rect_bottom_right = (center[0] + rect_size[0] // 2, center[1] - radius)
+            rect_background_color = (0, 0, 0)  # Black background
+            cv.rectangle(
+                frame, rect_top_left, rect_bottom_right, rect_background_color, -1
+            )
+
+            text_x = center[0] - text_size[0] // 2
+            text_y = (
+                center[1] - radius - 5
+            )  # Adjust to place text just above the circle
+            cv.putText(
+                frame,
+                text,
+                (text_x, text_y),
+                font,
+                font_scale,
+                text_color,
+                1,
+                cv.LINE_AA,
+            )
 
 
 # NOTE: no clue if this is actually right but it kind of looks like it may be

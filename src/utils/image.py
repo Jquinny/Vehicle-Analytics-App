@@ -11,7 +11,7 @@ from webcolors import (
     CSS3_HEX_TO_NAMES,
     hex_to_rgb,
 )
-from src.utils.geometry import bbox_center
+from src.utils.geometry import Rect
 
 
 def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
@@ -103,7 +103,7 @@ def get_color_from_RGB(rgb_tuple: Tuple[int, int, int]) -> str:
 
 
 def compute_avg_color(
-    img: np.ndarray, x1: int, y1: int, x2: int, y2: int, area_pct: float = 0.20
+    img: np.ndarray, rect: Rect, area_pct: float = 0.20
 ) -> Tuple[int, int, int]:
     """computes the average color within a bounding box by computing the
     average color in a square near the center of the bounding box
@@ -114,12 +114,12 @@ def compute_avg_color(
     elif area_pct < 0.0:  # NOTE: check this
         area_pct = 0.0
 
-    center_x, center_y = bbox_center(x1, y1, x2, y2)
+    center_x, center_y = rect.center.to_int().as_tuple()
 
-    new_x1 = int(center_x - area_pct * (x2 - x1) // 2)
-    new_y1 = int(center_y - area_pct * (y2 - y1) // 2)
-    new_x2 = int(center_x + area_pct * (x2 - x1) // 2)
-    new_y2 = int(center_y + area_pct * (y2 - y1) // 2)
+    new_x1 = int(center_x - area_pct * rect.width // 2)
+    new_y1 = int(center_y - area_pct * rect.height // 2)
+    new_x2 = int(center_x + area_pct * rect.width // 2)
+    new_y2 = int(center_y + area_pct * rect.height // 2)
 
     # using opencv for images so bgr instead of rgb
     b = int(np.mean(img[new_y1:new_y2, new_x1:new_x2, 0]))

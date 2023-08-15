@@ -8,8 +8,6 @@ representation based on the external values it's being fed
 
 NOTE:
 -   possibly do vehicle garbage collection when we get to 1000 vehicle instances
--   Consider getting rid of the vehicle class and just storing a dictionary
-    of data per global id (inside of VehicleTracker)
 -   consider playing around with the period attribute of the tracker in case
     optimizations are needed (like if we use large models for detections/classifications)
 
@@ -44,9 +42,8 @@ from config import (
     DETECTOR_NUM2NAME,
 )
 from src.utils.drawing import draw_vector
+from src.utils.geometry import Rect
 from src.utils.image import (
-    bbox_center,
-    bbox_area,
     get_color_from_RGB,
     compute_avg_color,
 )
@@ -85,6 +82,8 @@ class VehicleInstance:
     1. compute bounding box area (or distance to center of image), call this w
     2. add (w * class_conf) / full_img_area to class_estimate_bins[class_num]
     TODO: update to better math when you have time to think about it
+    -   ALSO: add classes as a parameter to __init__(). we can grab this from the
+        model and then build our bins from it instead of the hardcoded config
     """
 
     def __init__(
@@ -97,7 +96,11 @@ class VehicleInstance:
         """Initialises the state for a vehicle"""
 
         self._num_of_detections = 0
-        self._timestamp = str(initial_dt + datetime.timedelta(seconds=elapsed_time))
+        self._timestamp = (
+            str(initial_dt + datetime.timedelta(seconds=elapsed_time))
+            if initial_dt
+            else None
+        )
         self._video_timestamp = str(datetime.timedelta(seconds=elapsed_time))
         self._initial_frame_index = initial_frame_index
         self._entry_direction = entry_dir
@@ -198,6 +201,8 @@ class VehicleInstanceTracker:
 
     When a vehicle instance is destroyed, the vehicle data should be added
     to the results dataframe
+
+    TODO: use LRU caching system for garbage collecting vehicle instances maybe?
     """
 
     def __init__(
@@ -251,10 +256,12 @@ class VehicleInstanceTracker:
                 )
 
                 # TODO: compute entry direction from coordinates and initial
-                top_left = obj.get_estimate().astype(int)[0]
-                bottom_right = obj.get_estimate().astype(int)[1]
-                center_x, center_y = bbox_center(
-                    top_left[0], top_left[1], bottom_right[0], bottom_right[1]
+                x1, y1 = obj.get_estimate().astype(int)[0]
+                x2, y2 = obj.get_estimate().astype(int)[1]
+                center_x, center_y = (
+                    Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+                    .center.to_int()
+                    .as_tuple()
                 )
                 print(f"Entry Coordinate: ({center_x}, {center_y})")
 
@@ -268,7 +275,7 @@ class VehicleInstanceTracker:
 
             self._vehicles[obj.global_id].increment_detection_count()
             self._update_vehicle_color(img, obj)
-            self._update_vehicle_speed(obj)  # TODO: implement this logic
+            # self._update_vehicle_speed(obj)  # TODO: implement this logic
             self._update_vehicle_class_estimate(obj)
 
             print(self._vehicles[obj.global_id].get_data())
@@ -299,7 +306,8 @@ class VehicleInstanceTracker:
         """
         x1, y1 = tracked_obj.last_detection.points[0]
         x2, y2 = tracked_obj.last_detection.points[1]
-        avg_color = compute_avg_color(img, x1, y1, x2, y2, 0.20)
+        bbox = Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+        avg_color = compute_avg_color(img, bbox, 0.20)
         self._vehicles[tracked_obj.global_id].update_color(avg_color)
 
     def _update_vehicle_speed(self, tracked_obj: norfair.tracker.TrackedObject):
@@ -321,7 +329,8 @@ class VehicleInstanceTracker:
 
         x1, y1 = tracked_obj.last_detection.points[0]
         x2, y2 = tracked_obj.last_detection.points[1]
-        weight = bbox_area(x1, y1, x2, y2)
+        bbox = Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+        weight = bbox.area
         normalizer = (
             self._video_handler.resolution[0] * self._video_handler.resolution[1]
         )
@@ -329,33 +338,3 @@ class VehicleInstanceTracker:
         self._vehicles[tracked_obj.global_id].update_class_estimate(
             class_num, conf, weight, normalizer
         )
-
-
-# NOTE: not quite sure what this was for
-def center(points):
-    return [np.mean(np.array(points), axis=0)]
-
-
-# TODO: move this to object detector code
-def yolo_detections_to_norfair_detections(
-    yolo_detections: torch.tensor,
-) -> List[Detection]:
-    """convert detections_as_xywh to norfair detections"""
-
-    norfair_detections: List[Detection] = []
-
-    for detection in yolo_detections[0].boxes:
-        bbox_as_xyxy = detection.cpu().numpy().xyxy.astype(int)
-        score = detection.cpu().numpy().conf.item()
-        cls = detection.cpu().numpy().cls.item()
-        bbox = np.array(
-            [
-                [bbox_as_xyxy[0, 0], bbox_as_xyxy[0, 1]],
-                [bbox_as_xyxy[0, 2], bbox_as_xyxy[0, 3]],
-            ]
-        )
-        norfair_detections.append(
-            Detection(points=bbox, data={"class": cls, "conf": score})
-        )
-
-    return norfair_detections

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Tuple, List
 from dataclasses import dataclass
+import warnings
 
 import cv2 as cv
 import numpy as np
@@ -84,16 +85,43 @@ class Rect:
 
 
 class Poly:
-    """TODO:
-    -   make this implementation a wrapper around a list of Point objects that
-        can create shapely polygons, do validity checks, and add/remove points
-
-    NEED TO FIGURE OUT IF I WANT TO DO THE VALIDITY CHECK AS CLASS METHOD OR
-    PART OF THE COORDS LIST WRAPPER IMPLEMENTATION
+    """Simple polygon class that allows pushing and popping Point objects, as
+    well as checking polygon validity
     """
 
-    def __init__(self, coords: List[Point] | None):
+    def __init__(self, coords: List[Point] = []):
         self.coords = coords
+
+    def __iter__(self):
+        for pt in self.coords:
+            yield pt
+
+    def __len__(self):
+        return len(self.coords)
+
+    def push(self, pt: Point):
+        self.coords.append(pt)
+        if len(self) > 3 and not self.is_valid():
+            self.coords.pop()
+            warnings.warn("Invalid Point")
+
+    def pop(self):
+        if not self.is_empty():
+            self.coords.pop()
+
+    def to_int(self) -> Poly:
+        int_coords = [pt.to_int() for pt in self.coords]
+        return Poly(int_coords)
+
+    def is_valid(self) -> bool:
+        return self.as_shapely().is_valid
+
+    def is_empty(self) -> bool:
+        return len(self.coords) == 0
+
+    def clear_coords(self):
+        """clears all points in the polygon"""
+        self.coords = []
 
     def as_shapely(self) -> Polygon:
         return Polygon([pt.as_tuple() for pt in self.coords])
@@ -119,128 +147,11 @@ class Poly:
             whether or not the overlap area with respect to polygon was greater
             than the overlap_pct
         """
-        print(self)
-        print(polygon)
+        # print(self)
+        # print(polygon)
         p1 = self.as_shapely()
         p2 = polygon.as_shapely()
         area_overlap = p1.intersection(p2).area / p2.area
-        print(area_overlap)
+        # print(area_overlap)
 
         return area_overlap > overlap_pct
-
-
-# NOTE: DELETE WHATS BELOW
-
-
-def bbox_center(x1: int, y1: int, x2: int, y2: int) -> Tuple[int, int]:
-    """computes the center of a bounding box using top left and bottom right
-    corner coordinates.
-
-    Arguments
-    ---------
-    x1 (int):
-        top left bounding box corner x-coord
-    y1 (int):
-        top left bounding box corner y-coord
-    x2 (int):
-        bottom right bounding box corner x-coord
-    y2 (int):
-        bottom right bounding box corner y-coord
-
-    Returns
-    -------
-    int:
-        x coord of the center of the bounding box
-    int:
-        y coord of the center of the bounding box
-    """
-
-    center_x = int(x1 + (x2 - x1) // 2)
-    center_y = int(y1 + (y2 - y1) // 2)
-
-    return center_x, center_y
-
-
-def bbox_area(x1: int, y1: int, x2: int, y2: int) -> int:
-    """computes the area of a bounding box using top left and bottom right
-    corner coordinates.
-
-    Arguments
-    ---------
-    x1 (int):
-        top left bounding box corner x-coord
-    y1 (int):
-        top left bounding box corner y-coord
-    x2 (int):
-        bottom right bounding box corner x-coord
-    y2 (int):
-        bottom right bounding box corner y-coord
-
-    Returns
-    -------
-    int:
-        bounding box area in terms of number of pixels
-    """
-
-    return int(x2 - x1) * int(y2 - y1)
-
-
-def bbox_to_polygon(x1: int, y1: int, x2: int, y2: int) -> List[Tuple[int, int]]:
-    """creates a polygon representing a bounding box based on the
-
-    Arguments
-    ---------
-    x1 (int):
-        top left bounding box corner x-coord
-    y1 (int):
-        top left bounding box corner y-coord
-    x2 (int):
-        bottom right bounding box corner x-coord
-    y2 (int):
-        bottom right bounding box corner y-coord
-
-    Returns
-    -------
-    List[Tuple[int, int]]
-    """
-    top_left = (x1, y1)
-    top_right = (x2, y1)
-    bottom_left = (x1, y2)
-    bottom_right = (x2, y2)
-
-    return [top_left, top_right, bottom_right, bottom_left]
-
-
-def check_overlap(region1: np.ndarray, region2: np.ndarray, overlap_pct: float = 0.30):
-    """Checks the overlap area of two polygons to see if it's greater than
-    the required overlap percent.
-
-    The overlap area percentage is computed with respect to the area of region2,
-    so if you want the overlap to have an area > 50% of the area of region2
-    then overlap_pct would be .50
-
-    Arguments
-    ---------
-    region1 (np.ndarray):
-        A polygon represented by a numpy array of shape (N, 2), containing the
-        x, y coordinates of the points.top left bounding box corner x-coord
-    region2 (np.ndarray):
-        A polygon represented by a numpy array of shape (N, 2), containing the
-        x, y coordinates of the points.top left bounding box corner x-coord
-    overlap_pct (float):
-        the percentage of overlap to check for
-
-    Returns
-    -------
-    bool:
-        whether or not the overlap area with respect to region2 was greater
-        than the overlap_pct
-    """
-    print(region1)
-    print(region2)
-    p1 = Polygon(region1)
-    p2 = Polygon(region2)
-    area_overlap = p1.intersection(p2).area / p2.area
-    print(area_overlap)
-
-    return area_overlap > overlap_pct

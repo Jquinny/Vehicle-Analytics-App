@@ -1,92 +1,109 @@
-"""TODO: add type hints"""
+from typing import List, Dict, Tuple
 
-import json
 import cv2 as cv
 import numpy as np
-import warnings
 
-# user entered information
-ROI = []
-COORDINATES = {}
+from src.utils.geometry import Point, Poly
+from src.utils.drawing import draw_coordinates, draw_roi
 
-
-def draw_roi(img: np.ndarray, close: bool = False):
-    """Draw ROI polygon onto image"""
-    global ROI
-
-    np_roi = np.array(ROI)
-    for point in np_roi:
-        cv.circle(img, point, 3, (0, 255, 0), 3)
-    cv.polylines(img, [np_roi], close, (0, 255, 0), 3)
-
-    return
+WINDOW_SIZE = (1280, 720)
 
 
-def get_roi_points(event, x, y, flags, images):
+def get_roi_points(event, x, y, flags, data: dict):
     """Get list of points for ROI from user mouse input"""
-    global ROI
-
     if event == cv.EVENT_LBUTTONDOWN:
-        ROI.append((x, y))
-        draw_roi(images["copy"])
+        data["roi"].push(Point(x=x, y=y))
 
     if event == cv.EVENT_RBUTTONDOWN:
-        if ROI:
-            ROI.pop()
-            images["copy"] = images["original"].copy()  # erasing lines to redraw
-            draw_roi(images["copy"])
+        if data["roi"]:
+            data["roi"].pop()
+            data["copy"] = data["original"].copy()  # erasing lines to redraw
+
+    draw_roi(data["copy"], data["roi"])
 
     return
 
 
-def get_roi(frame: np.ndarray, roi_file: str = None):
-    global ROI
-    frame_title = "Region of Interest Extraction"
+def get_roi(frame: np.ndarray) -> Poly | None:
+    window_title = "Region of Interest Extraction"
+    window_scale_x = frame.shape[1] / WINDOW_SIZE[0]
+    window_scale_y = frame.shape[0] / WINDOW_SIZE[1]
+    resized_frame = cv.resize(frame, WINDOW_SIZE)
+    data = {"roi": Poly(), "original": resized_frame, "copy": resized_frame.copy()}
 
-    # get roi from user mouse input if no input roi json file
-    if roi_file is None:
-        images = {"original": frame, "copy": frame.copy()}
+    # grab ROI from user
+    cv.namedWindow(window_title)
+    cv.setMouseCallback(window_title, get_roi_points, data)
+    print("\nPress enter to connect final points.")
+    print("Press enter again if satisfied. Press any other key to continue editing.\n")
+    while True:
+        cv.imshow(window_title, data["copy"])
+        key = cv.waitKey(10)
+        if key == ord("\r"):  # show full polygon when user presses enter
+            data["copy"] = data["original"].copy()
+            draw_roi(data["copy"], data["roi"], True)
+            cv.imshow(window_title, data["copy"])
+            key = cv.waitKey(0)
+            if key == ord("\r"):
+                cv.destroyWindow(window_title)
+                break
 
-        # grab ROI from user
-        cv.namedWindow(frame_title)
-        cv.setMouseCallback(frame_title, get_roi_points, images)
-        print("\nPress enter to connect final points.")
-        print(
-            "Press enter again if satisfied. Press any other key to continue editing.\n"
+    if not data["roi"].is_empty():
+        # coordinate transform due to window scaling
+        return Poly(
+            [
+                Point(x=pt.x * window_scale_x, y=pt.y * window_scale_y)
+                for pt in data["roi"]
+            ]
         )
-        while True:
-            cv.imshow(frame_title, images["copy"])
-            key = cv.waitKey(10)
-            if key == ord("\r"):  # show full polygon when user presses enter
-                images["copy"] = images["original"].copy()
-                draw_roi(images["copy"], True)
-                cv.imshow(frame_title, images["copy"])
-                key = cv.waitKey(0)
-                if key == ord("\r"):
-                    cv.destroyWindow(frame_title)
-                    break
-
-    #     # save ROI to json if user wants
-    #     ans = input("Would you like to save ROI to a json file? (y/n): ")
-    #     while ans not in ("y", "n"):
-    #         ans = input("Not a valid input, try again: ")
-    #     if ans == "y":
-    #         roi_filename = input("Specify filename for roi (no file extension): ")
-    #         with open(roi_filename + ".json", "w") as json_file:
-    #             json.dump(ROI, json_file)
-    # else:
-    #     with open(roi_file) as f:
-    #         ROI = json.load(f)
-
-    return ROI
+    else:
+        return None
 
 
-def get_coordinates(frame: np.ndarray):
-    global COORDINATES
-    warnings.warn("\nget_coordinates(frame) is not implemented yet")
-    return COORDINATES
+def get_coordinate_points(event, x, y, flags, data: dict):
+    """Get list of points for ROI from user mouse input"""
+    if event == cv.EVENT_LBUTTONDOWN:
+        if len(data["coordinates"]) < 4:
+            data["coordinates"].append(Point(x=x, y=y))
+
+    if event == cv.EVENT_RBUTTONDOWN:
+        if data["coordinates"]:
+            data["coordinates"].pop()
+            data["copy"] = data["original"].copy()  # erasing coords to redraw
+
+    draw_coordinates(data["copy"], data["coordinates"], data["coord_map"])
+
+    return
 
 
-def draw_coordinates(frame: np.ndarray):
-    global COORDINATES
-    warnings.warn("\ndraw_coordinates(frame) is ")
+def get_coordinates(frame: np.ndarray) -> Tuple[List[Point], Dict[int, str]]:
+    window_title = "Direction Coordinate Placement"
+    window_scale_x = frame.shape[1] / WINDOW_SIZE[0]
+    window_scale_y = frame.shape[0] / WINDOW_SIZE[1]
+    resized_frame = cv.resize(frame, WINDOW_SIZE)
+    data = {
+        "coordinates": [],
+        "coord_map": {0: "N", 1: "S", 2: "E", 3: "W"},
+        "original": resized_frame,
+        "copy": resized_frame.copy(),
+    }
+
+    # grab direction coordinates from user
+    cv.namedWindow(window_title)
+    cv.setMouseCallback(window_title, get_coordinate_points, data)
+    print("\nPress enter to confirm.")
+    while True:
+        cv.imshow(window_title, data["copy"])
+        key = cv.waitKey(10)
+        if len(data["coordinates"]) == 4 and key == ord("\r"):
+            cv.destroyWindow(window_title)
+            break
+
+    if data["coordinates"]:
+        # coordinate transform due to window scaling
+        data["coordinates"] = [
+            Point(x=pt.x * window_scale_x, y=pt.y * window_scale_y)
+            for pt in data["coordinates"]
+        ]
+
+    return data["coordinates"], data["coord_map"]
