@@ -1,0 +1,42 @@
+{
+    "architecture": "yolov8",
+    "task": "detect",
+    "classes": {
+        "0": "bus",
+        "1": "const",
+        "2": "lt",
+        "3": "o",
+        "4": "rvc",
+        "5": "sv",
+        "6": "trcont",
+        "7": "trflat",
+        "8": "tronly",
+        "9": "trreefer",
+        "10": "trtank",
+        "11": "trtrail",
+        "12": "vp",
+        "13": "waste"
+    },
+    "hyper_params": {
+        "model_type": "yolov8n.pt",
+        "pretrained": true,
+        "device": 0,
+        "seed": 42,
+        "patience": 15,
+        "imgsz": 640,
+        "batch": 16,
+        "epochs": 100,
+        "optimizer": "Adam",
+        "lr0": 0.001
+    },
+    "setup_params": {},
+    "inference_params": {},
+    "metrics": {
+        "avg_inference_time (ms)": 15.626113414764404,
+        "precision": 0.8355910363297786,
+        "recall": 0.8063095703432461,
+        "mAP50": 0.8744606079196867,
+        "mAP50-95": 0.7420783019529124,
+        "fitness": 0.7553165325495899
+    }
+}

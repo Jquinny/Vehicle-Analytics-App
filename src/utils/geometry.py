@@ -10,6 +10,15 @@ import numpy as np
 from shapely.geometry import Polygon
 
 
+def points_to_rect(points: np.ndarray) -> Rect:
+    """helper for converting 2x2 norfair.tracker.Detection.points attribute
+    into a Rect object
+    """
+    x1, y1 = points[0]
+    x2, y2 = points[1]
+    return Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+
+
 @dataclass
 class Point:
     x: float
@@ -147,11 +156,8 @@ class Poly:
             whether or not the overlap area with respect to polygon was greater
             than the overlap_pct
         """
-        # print(self)
-        # print(polygon)
         p1 = self.as_shapely()
         p2 = polygon.as_shapely()
         area_overlap = p1.intersection(p2).area / p2.area
-        # print(area_overlap)
 
         return area_overlap > overlap_pct

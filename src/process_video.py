@@ -1,23 +1,18 @@
-"""Main script for running the full vehicle analysis pipeline.
+"""Main script for running the full vehicle analysis pipeline."""
 
-TODO: setup so it works with new model_selector class
--   change interface so that the process() function takes in a task object,
-    this task object will have all necessary info such as instantiated models
-    and anything else required
-"""
-
+from pathlib import Path
 import argparse
 import time
+import warnings
 
 import numpy as np
 import torch
 
 import cv2 as cv
 import easyocr
-from norfair import Paths
 from norfair.utils import print_objects_as_table  # for testing ............
 
-from config import ROOT_DIR, CLASSIFIER_NAME2NUM
+from config import ROOT_DIR
 from src.tracking import VehicleInstanceTracker
 from src.models.base_model import BaseModel
 from src.utils.user_input import get_roi, draw_roi, get_coordinates
@@ -26,33 +21,34 @@ from src.utils.drawing import (
     draw_coordinates,
     draw_detector_predictions,
     draw_tracker_predictions,
-    draw_tracklets,
+    draw_zones,
 )
-from src.utils.geometry import Rect
+from src.utils.geometry import points_to_rect
 from src.utils.image import parse_timestamp
 from src.utils.video import VideoHandler
-from src.model_selector import ModelSelector
+from src.model_registry import ModelRegistry
 
 # NOTE: play with these constants, or try an algorithm that somehow finds the
 # best results once I have a ground truth set up
 
 # tracking constants
+INITIALIZATION_DELAY: int = 5
+HIT_COUNTER_MAX: int = 15
+DISTANCE_FUNCTION: str = "iou"
 DISTANCE_THRESHOLD_BBOX: float = 0.7
-MAX_DISTANCE: int = 10000
-LIFESPAN = 15  # max number of frames a tracked object can surive without a match
-DETECTION_THRESHOLD = 0  # may be redundant if I already have CONF_THRESHOLD
+MAX_DISTANCE: int = 10000  # not sure why I had this here
+DETECTION_THRESHOLD: float = 0  # may be redundant if I already have CONF_THRESHOLD
 
 # detection constants
-IMG_SZ = 512
-CONF_THRESHOLD = 0.45
-IOU_THRESHOLD = 0.45
+# CONF_THRESHOLD = 0.45
+# IOU_THRESHOLD = 0.45
 
-ROI_OVERLAP_PCT = 0.15
+ROI_OVERLAP_PCT: float = 0.15
 
 
 def process(
     detector: BaseModel,
-    video_handler: VideoHandler,
+    video_path: str,
     save_video: bool = False,
     debug: bool = False,
 ) -> str:
@@ -65,9 +61,8 @@ def process(
     ---------
     detector (BaseModel):
         the object detector used for vehicle detection and classification
-    video_handler (VideoHandler):
-        handles all things related to video, like frame extraction, time extraction,
-        and saving
+    video_path (str):
+        absolute path to the video to be processed
     save_video (bool):
         if true, save output video with bounding boxes and classes drawn on frames
     debug (bool):
@@ -79,10 +74,22 @@ def process(
     str:
         path to the output directory
     """
+    if debug:
+        print("Setting up ...")
+
     # automatically set device for inferencing
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     if debug:
         print(f"using device {device}")
+
+    # setting up the output directory and the video handler
+    video_filename = Path(video_path).stem
+    output_dir = ROOT_DIR / "output/" / video_filename
+    try:
+        output_dir.mkdir(parents=True)
+    except:
+        warnings.warn("output directory already exists, overwriting previous data")
+    video_handler = VideoHandler(input_path=video_path, output_dir=str(output_dir))
 
     # setup ocr model
     reader = easyocr.Reader(["en"])
@@ -91,79 +98,85 @@ def process(
     distance_function = "iou"
     distance_threshold = DISTANCE_THRESHOLD_BBOX
 
-    # utility for drawing tracklets
-    path_drawer = Paths(attenuation=0.05)
-
     # grab roi, direction coordinates, and timestamp
     frame = video_handler.get_frame(0)
     initial_datetime = parse_timestamp(frame, reader)
-    print(initial_datetime)
     roi = get_roi(frame)
-    print(roi)
+    draw_roi(frame, roi, close=True)
     coord_points, coord_map = get_coordinates(frame)
-    # direction_coords = {dir: coord_points[idx] for idx, dir in coord_map.items()}
-    # print(direction_coords)
 
-    # colors = {0: (0, 0, 255), 1: (255, 0, 0), 2: (0, 255, 0), 3: (128, 128, 0)}
-    # Create arrays for the pixel coordinates and zone coordinates
+    # calculate entry/exit zone mask
     pixel_coords = np.indices(frame.shape[:2])[::-1].transpose(1, 2, 0)
     zone_coords = np.array([pt.as_tuple() for pt in coord_points])
-
-    # Calculate the Euclidean distances using vectorized operations
     distances = np.linalg.norm(
         pixel_coords[:, :, None, :] - zone_coords[None, None, :, :], axis=-1
     )
-
-    # TODO: add both zone labels and coord_map to the tracker (zone_labels is
-    # matrix of values in [0, 1, 2, 3] and coord_map maps those values to a
-    # direction string)
-
     # Find the index of the minimum distance for each pixel
-    zone_labels = np.argmin(distances, axis=-1)
-    exit()
+    zone_mask = np.argmin(distances, axis=-1)
 
     # set up vehicle tracker
     vehicle_tracker = VehicleInstanceTracker(
         video_handler=video_handler,
         roi=roi,
-        direction_coords=direction_coords,
+        zone_mask=zone_mask,
+        zone_mask_map=coord_map,
         initial_datetime=initial_datetime,
         distance_function=distance_function,
         distance_threshold=distance_threshold,
+        hit_counter_max=HIT_COUNTER_MAX,
+        initialization_delay=INITIALIZATION_DELAY,
     )
 
+    if debug:
+        print("beginning to process ...")
     start = time.time()
-    for frame in video_handler:
-        # get detections from model inference
-        norfair_detections = detector.inference(frame, device=device, verbose=False)
+    try:
+        for frame in video_handler:
+            # get detections from model inference
+            norfair_detections = detector.inference(frame, device=device, verbose=False)
 
-        # filter detections outside of ROI
-        valid_detections = []
-        for detection in norfair_detections:
-            x1, y1 = detection.points[0]
-            x2, y2 = detection.points[1]
-            bbox = Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
-            if roi.check_overlap(bbox.as_polygon(), overlap_pct=ROI_OVERLAP_PCT):
-                valid_detections.append(detection)
+            # filter detections outside of ROI
+            valid_detections = []
+            for detection in norfair_detections:
+                # x1, y1 = detection.points[0]
+                # x2, y2 = detection.points[1]
+                # bbox = Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+                bbox = points_to_rect(detection.points)
+                if roi.check_overlap(bbox.as_polygon(), overlap_pct=ROI_OVERLAP_PCT):
+                    valid_detections.append(detection)
 
-        # update tracker with new detections
-        tracked_objects = vehicle_tracker.update(frame, valid_detections)
+            # update tracker with new detections
+            tracked_objects = vehicle_tracker.update(frame, valid_detections)
 
-        # drawing stuff
-        draw_roi(frame, roi, close=True)
-        draw_coordinates(frame, coord_points, coord_map)
-        # draw_detector_predictions(frame, norfair_detections, track_points="bbox")
-        draw_detector_predictions(frame, valid_detections, track_points="bbox")
-        draw_tracker_predictions(frame, tracked_objects, track_points="bbox")
-        draw_tracklets(frame, path_drawer, tracked_objects)
+            # drawing stuff TODO only put what is necessary
+            draw_roi(frame, roi, close=True)
+            draw_coordinates(frame, coord_points, coord_map)
+            draw_zones(frame, zone_mask)
+            # draw_detector_predictions(frame, norfair_detections, track_points="bbox")
+            draw_detector_predictions(frame, valid_detections, track_points="bbox")
+            draw_tracker_predictions(frame, tracked_objects, track_points="bbox")
 
-        if save_video:
-            video_handler.write_frame_to_video(frame)
+            if save_video:
+                video_handler.write_frame_to_video(frame)
 
-        if debug and video_handler.show(frame, 10) == ord("q"):
-            video_handler.cleanup()
-            break
-    print(f"Total Time: {time.time() - start}")
+            if debug and video_handler.show(frame, 10) == ord("q"):
+                video_handler.cleanup()
+                break
+
+        results = vehicle_tracker.get_results()
+    except Exception as e:
+        print(e)
+        # want to write out anything processed so far in case program errors
+        # out for whatever reason
+        results = vehicle_tracker.get_results()
+
+    print(f"Total Time: {time.time() - start}")  # FOR TESTING ....................
+
+    # write results to csv
+    csv_path = str(output_dir / (video_filename + ".csv"))
+    results.to_csv(csv_path, header=True, index=False, mode="w")
+
+    return str(output_dir)
 
 
 if __name__ == "__main__":
@@ -179,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--video",
         type=str,
-        help="video filename in form <filename>.<ext>",
+        help="relative path to video input file",
         default="test_videos/short_video.mp4",
     )
     parser.add_argument(
@@ -190,21 +203,14 @@ if __name__ == "__main__":
     parser.add_argument("--save", help="write video to a file", action="store_true")
     args = parser.parse_args()
     model_path = args.model
-    video_path = args.video
+    video_path = str(ROOT_DIR / args.video)
     debug = args.debug
     save = args.save
 
-    # # TODO: use model factories here for models
-    # model = YOLO(model_path, task="detect")
-
-    model_selector = ModelSelector(ROOT_DIR / "models/")
+    model_selector = ModelRegistry(ROOT_DIR / "models/")
     valid_list = model_selector.search("detect")
-    print(valid_list)
     metadata = valid_list[0]
     model = model_selector.generate_model(metadata)
 
-    # setting up the video for reading/writing frames
-    video_output_dir = str(ROOT_DIR / "output_videos")
-    video_handler = VideoHandler(input_path=video_path, output_dir=video_output_dir)
-
-    process(model, video_handler, save, debug)
+    output_dir = process(model, video_path, save, debug)
+    print(f"\nOutput Directory: {output_dir}")

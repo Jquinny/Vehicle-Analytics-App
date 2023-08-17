@@ -14,6 +14,12 @@ def _merge_frames(track_mask: np.ndarray, video_frame: np.ndarray):
     return cv.addWeighted(track_mask, 1, video_frame, 1, 0)
 
 
+def draw_zones(img: np.ndarray, zone_mask: np.ndarray):
+    """draws the zone lines on the image"""
+    edges = cv.Canny((zone_mask * 50).astype(np.uint8), threshold1=100, threshold2=200)
+    img[edges == 255] = (0, 0, 255)
+
+
 def draw_roi(img: np.ndarray, roi: Poly, close: bool = False):
     """Draw ROI polygon onto image"""
     if roi:

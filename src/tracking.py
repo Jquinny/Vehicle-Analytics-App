@@ -7,23 +7,15 @@ basically the vehicle instance is responsible for understanding it's internal
 representation based on the external values it's being fed
 
 NOTE:
--   possibly do vehicle garbage collection when we get to 1000 vehicle instances
+-   possibly do vehicle garbage collection when we get to 100 vehicle instances
 -   consider playing around with the period attribute of the tracker in case
     optimizations are needed (like if we use large models for detections/classifications)
 
 TODO:
--   add option to read in ROI and direction coordinates from a file for vehicle
+-   maybe add option to read in ROI and direction coordinates from a file for vehicle
     tracker setup
--   figure out how to garbage collect the vehicle instances efficiently
--   to compute the entry and exit directions, use the velocity estimate of the
-    tracked objects to see which direction coordinate (VELOCITY WILL NOT WORK)
-        -   if that doesn't work, could try fitting a line through it's
-            trajectory (would require storing points from each detection)
-            and then estimating based on that
 """
 
-import random
-from copy import deepcopy
 import datetime
 from typing import List, Dict, Tuple, Any
 
@@ -33,21 +25,27 @@ import torch
 
 import cv2 as cv
 import norfair
-from norfair import Tracker, Detection, Paths, Video
+from norfair import Tracker
 
-from config import (
-    CLASSIFIER_NUM2NAME,
-    CLASSIFIER_NAME2NUM,
-    VEHICLE_DATA_COLUMNS,
-    DETECTOR_NUM2NAME,
-)
-from src.utils.drawing import draw_vector
-from src.utils.geometry import Rect
+from config import CLASSIFIER_NUM2NAME, DETECTOR_NUM2NAME
+from src.utils.geometry import points_to_rect
 from src.utils.image import (
     get_color_from_RGB,
     compute_avg_color,
 )
 from src.utils.video import VideoHandler
+
+VEHICLE_DATA_COLUMNS = {
+    "timestamp": "string",
+    "video_timestamp": "string",
+    "initial_frame_index": "UInt64",
+    "num_of_frames": "UInt64",
+    "class": "string",
+    "confidence": "Float64",
+    "entry_direction": "string",
+    "exit_direction": "string",
+    "color": "string",
+}
 
 
 class CumulativeAverage:
@@ -73,8 +71,10 @@ class CumulativeAverage:
         return "average: " + str(self.average)
 
 
-class VehicleInstance:
+class _VehicleInstance:
     """class responsible for holding a vehicles state throughout its lifespan
+
+    NOTE: this should only every be instantiated by a vehicle tracker object
 
     algorithm for bins is as follows (use this when just using single shot
     i.e. no classifier):
@@ -91,7 +91,6 @@ class VehicleInstance:
         initial_dt: datetime.datetime,
         elapsed_time: int,
         initial_frame_index: int,
-        entry_dir: str,
     ):
         """Initialises the state for a vehicle"""
 
@@ -103,11 +102,9 @@ class VehicleInstance:
         )
         self._video_timestamp = str(datetime.timedelta(seconds=elapsed_time))
         self._initial_frame_index = initial_frame_index
-        self._entry_direction = entry_dir
-
-        self._speed = CumulativeAverage()
         self._color = (CumulativeAverage(), CumulativeAverage(), CumulativeAverage())
-        self._exit_direction = None
+        self._entry_direction = None
+        self._current_direction = None
 
         self._class_estimate_bins = {
             class_num: 0 for class_num in CLASSIFIER_NUM2NAME.keys()
@@ -124,7 +121,7 @@ class VehicleInstance:
         int:
             the best estimate class num
         """
-        # NOTE: may have to handle ties somehow
+        # NOTE: may have to add tie handling
         return max(self._class_estimate_bins, key=self._class_estimate_bins.get)
 
     def get_class_confidence(self) -> float:
@@ -158,12 +155,19 @@ class VehicleInstance:
             "class": DETECTOR_NUM2NAME[cls],  # NOTE: change this later
             "confidence": round(conf, 2),
             "entry_direction": self._entry_direction,
-            "exit_direction": self._exit_direction,
-            "speed": float(self._speed),
+            "exit_direction": self._current_direction,
             "color": get_color_from_RGB(rgb_tuple),
         }
 
         return data
+
+    def update_direction(self, direction: str):
+        """updates the current direction, and if entry direction has not
+        been set it will set that in here
+        """
+        if self._entry_direction is None:
+            self._entry_direction = direction
+        self._current_direction = direction
 
     def update_class_estimate(
         self,
@@ -176,10 +180,6 @@ class VehicleInstance:
         self._class_estimate_bins[class_num] += (weight * class_conf) / normalizer
         self._class_confidence_bins[class_num].update(class_conf)
 
-    def update_speed(self, speed: float):
-        """updates the speed estimate for this vehicle"""
-        self._speed.update(speed)
-
     def update_color(self, rgb: Tuple[int, int, int]):
         """updates the color estimate for this vehicle"""
         self._color[0].update(rgb[0])
@@ -187,22 +187,18 @@ class VehicleInstance:
         self._color[2].update(rgb[2])
 
     def increment_detection_count(self):
-        """increments the number of detections for this vehicle by 1
-
-        NOTE: possibly change this to take in an `increment` amount that we
-        increment by instead of always 1
-        """
+        """increments the number of detections for this vehicle by 1"""
         self._num_of_detections += 1
 
 
 class VehicleInstanceTracker:
-    """class responsible for producing and destroying vehicle instances properly.
-    Acts as a wrapper around a norfair.tracking.Tracker object
+    """Acts as a wrapper around a norfair.tracking.Tracker object, allowing
+    for vehicle state estimation and tracking.
 
-    When a vehicle instance is destroyed, the vehicle data should be added
-    to the results dataframe
-
-    TODO: use LRU caching system for garbage collecting vehicle instances maybe?
+    NOTE: currently I'm just holding on to the data and allowing it
+    to be extracted into a dataframe from outside of the instance, but if
+    the memory usage for storing all vehicles is too much I may have to change
+    this to garbage collect dead vehicles while running.
     """
 
     def __init__(
@@ -211,24 +207,26 @@ class VehicleInstanceTracker:
         distance_function,
         distance_threshold,
         roi: List[Tuple[int, int]] | None = None,
-        direction_coords: Dict[str, Tuple[int, int]] | None = None,
+        zone_mask: np.ndarray = None,
+        zone_mask_map: Dict[int, str] = None,
         initial_datetime: datetime.datetime | None = None,
+        hit_counter_max: int = 5,
+        initialization_delay: int = 5,
     ):
         self._video_handler = video_handler
         self._roi = roi
-        self._direction_coords = direction_coords
         self._initial_datetime = initial_datetime
+        self._zone_mask = zone_mask
+        self._zone_mask_map = zone_mask_map
 
-        self._tracker = Tracker(distance_function, distance_threshold)
-        self._vehicles: Dict[int, VehicleInstance] = {}
-
-        self._results = pd.DataFrame(columns=VEHICLE_DATA_COLUMNS).astype(
-            VEHICLE_DATA_COLUMNS
+        self._tracker = Tracker(
+            distance_function=distance_function,
+            distance_threshold=distance_threshold,
+            hit_counter_max=hit_counter_max,
+            initialization_delay=initialization_delay,
         )
-
-    def _check_vehicle_status(self, vehicle: VehicleInstance):
-        """check what state a vehicle object is currently in"""
-        pass
+        self._vehicles: Dict[int, _VehicleInstance] = {}
+        self._results: Dict[int, Dict[str, Any]] = {}
 
     def update(
         self,
@@ -255,34 +253,42 @@ class VehicleInstanceTracker:
                     self._video_handler.current_frame / self._video_handler.fps
                 )
 
-                # TODO: compute entry direction from coordinates and initial
-                x1, y1 = obj.get_estimate().astype(int)[0]
-                x2, y2 = obj.get_estimate().astype(int)[1]
-                center_x, center_y = (
-                    Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
-                    .center.to_int()
-                    .as_tuple()
-                )
-                print(f"Entry Coordinate: ({center_x}, {center_y})")
-
                 # initialize new vehicle instance
-                self._vehicles[obj.global_id] = VehicleInstance(
+                self._vehicles[obj.global_id] = _VehicleInstance(
                     initial_dt=self._initial_datetime,
                     elapsed_time=elapsed_time,
                     initial_frame_index=self._video_handler.current_frame,
-                    entry_dir=None,  # TODO
                 )
 
-            self._vehicles[obj.global_id].increment_detection_count()
-            self._update_vehicle_color(img, obj)
-            # self._update_vehicle_speed(obj)  # TODO: implement this logic
-            self._update_vehicle_class_estimate(obj)
+                # # FOR TESTING ............................................
+                # cv.circle(
+                #     img,
+                #     points_to_rect(obj.last_detection.points)
+                #     .center.to_int()
+                #     .as_tuple(),
+                #     5,
+                #     (0, 0, 255),
+                #     -1,
+                # )
+                # draw_zones(img, self._zone_mask)
+                # cv.imshow("entry", img)
+                # cv.waitKey(0)
 
-            print(self._vehicles[obj.global_id].get_data())
+            # updating tracked vehicle data
+            self._vehicles[obj.global_id].increment_detection_count()
+            self._update_vehicle_direction(obj)
+            self._update_vehicle_class_(obj)
+            self._update_vehicle_color(img, obj)
+
+        # purge any vehicles no longer being tracked store data in results
+        for global_id, vehicle in list(self._vehicles.items()):
+            if global_id not in [obj.global_id for obj in tracked_objects]:
+                self._results[global_id] = vehicle.get_data()
+                del self._vehicles[global_id]
 
         return tracked_objects
 
-    def extract_vehicle_data(self) -> pd.DataFrame:
+    def get_results(self) -> pd.DataFrame:
         """aggregates all tracked vehicle data into a dataframe
 
         NOTE: may want to do this when a vehicle dies and not all at once at the
@@ -294,9 +300,10 @@ class VehicleInstanceTracker:
         pd.DataFrame:
             the dataframe containing a row of data for each vehicle instance
         """
-        for global_id, vehicle in self._vehicles.items():
-            # TODO: update dataframe
-            pass
+        return pd.DataFrame(
+            [data for _, data in self._results.items()],
+            columns=VEHICLE_DATA_COLUMNS,
+        ).astype(dtype=VEHICLE_DATA_COLUMNS)
 
     def _update_vehicle_color(
         self, img: np.ndarray, tracked_obj: norfair.tracker.TrackedObject
@@ -304,19 +311,11 @@ class VehicleInstanceTracker:
         """computes average color of last detection for this vehicle and then
         updates its state
         """
-        x1, y1 = tracked_obj.last_detection.points[0]
-        x2, y2 = tracked_obj.last_detection.points[1]
-        bbox = Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+        bbox = points_to_rect(tracked_obj.last_detection.points)
         avg_color = compute_avg_color(img, bbox, 0.20)
         self._vehicles[tracked_obj.global_id].update_color(avg_color)
 
-    def _update_vehicle_speed(self, tracked_obj: norfair.tracker.TrackedObject):
-        # TODO: compute speed estimate based on norfair velocity estimate somehow
-        self._vehicles[tracked_obj.global_id].update_speed(2)
-
-    def _update_vehicle_class_estimate(
-        self, tracked_obj: norfair.tracker.TrackedObject
-    ):
+    def _update_vehicle_class_(self, tracked_obj: norfair.tracker.TrackedObject):
         """updates the class estimate using the last detection matched with the
         tracked vehicle
         """
@@ -327,9 +326,7 @@ class VehicleInstanceTracker:
         class_num = tracked_obj.last_detection.data.get("class", None)
         conf = tracked_obj.last_detection.data.get("conf", None)
 
-        x1, y1 = tracked_obj.last_detection.points[0]
-        x2, y2 = tracked_obj.last_detection.points[1]
-        bbox = Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+        bbox = points_to_rect(tracked_obj.last_detection.points)
         weight = bbox.area
         normalizer = (
             self._video_handler.resolution[0] * self._video_handler.resolution[1]
@@ -337,4 +334,15 @@ class VehicleInstanceTracker:
 
         self._vehicles[tracked_obj.global_id].update_class_estimate(
             class_num, conf, weight, normalizer
+        )
+
+    def _update_vehicle_direction(
+        self, tracked_obj: norfair.tracker.TrackedObject
+    ) -> str:
+        """estimates the direction the vehicle is currently at based on the zone
+        mask and zone mask map
+        """
+        center_pt = points_to_rect(tracked_obj.last_detection.points).center.to_int()
+        self._vehicles[tracked_obj.global_id].update_direction(
+            self._zone_mask_map[self._zone_mask[center_pt.y, center_pt.x]]
         )
