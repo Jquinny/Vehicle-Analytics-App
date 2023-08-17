@@ -11,6 +11,7 @@ import torch
 import cv2 as cv
 import easyocr
 from norfair.utils import print_objects_as_table  # for testing ............
+from norfair.drawing import Palette
 
 from config import ROOT_DIR
 from src.tracking import VehicleInstanceTracker
@@ -20,6 +21,7 @@ from src.utils.drawing import (
     draw_roi,
     draw_coordinates,
     draw_detector_predictions,
+    draw_rect,
     draw_tracker_predictions,
     draw_zones,
 )
@@ -102,7 +104,7 @@ def process(
     frame = video_handler.get_frame(0)
     initial_datetime = parse_timestamp(frame, reader)
     roi = get_roi(frame)
-    draw_roi(frame, roi, close=True)
+    draw_roi(frame, roi, close=True)  # just so user sees ROI when selecting coords
     coord_points, coord_map = get_coordinates(frame)
 
     # calculate entry/exit zone mask
@@ -111,12 +113,12 @@ def process(
     distances = np.linalg.norm(
         pixel_coords[:, :, None, :] - zone_coords[None, None, :, :], axis=-1
     )
-    # Find the index of the minimum distance for each pixel
     zone_mask = np.argmin(distances, axis=-1)
 
     # set up vehicle tracker
     vehicle_tracker = VehicleInstanceTracker(
         video_handler=video_handler,
+        class_map=detector.get_classes(),
         roi=roi,
         zone_mask=zone_mask,
         zone_mask_map=coord_map,
@@ -127,8 +129,13 @@ def process(
         initialization_delay=INITIALIZATION_DELAY,
     )
 
+    # color map for visualizing bounding boxes and class estimates
+    # NOTE: supports 20 classes for now
+    Palette.set("tab20")
+
     if debug:
         print("beginning to process ...")
+
     start = time.time()
     try:
         for frame in video_handler:
@@ -138,9 +145,6 @@ def process(
             # filter detections outside of ROI
             valid_detections = []
             for detection in norfair_detections:
-                # x1, y1 = detection.points[0]
-                # x2, y2 = detection.points[1]
-                # bbox = Rect(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
                 bbox = points_to_rect(detection.points)
                 if roi.check_overlap(bbox.as_polygon(), overlap_pct=ROI_OVERLAP_PCT):
                     valid_detections.append(detection)
@@ -148,16 +152,27 @@ def process(
             # update tracker with new detections
             tracked_objects = vehicle_tracker.update(frame, valid_detections)
 
-            # drawing stuff TODO only put what is necessary
-            draw_roi(frame, roi, close=True)
-            draw_coordinates(frame, coord_points, coord_map)
-            draw_zones(frame, zone_mask)
-            # draw_detector_predictions(frame, norfair_detections, track_points="bbox")
-            draw_detector_predictions(frame, valid_detections, track_points="bbox")
-            draw_tracker_predictions(frame, tracked_objects, track_points="bbox")
-
-            if save_video:
+            if debug or save_video:
+                # draw necessary info
+                for detection in valid_detections:
+                    bbox = points_to_rect(detection.points)
+                    class_num = detection.data.get("class")
+                    conf = detection.data.get("conf")
+                    draw_rect(
+                        frame,
+                        rect=bbox,
+                        class_name=detector.get_classes().get(class_num),
+                        conf=conf,
+                        color=Palette.choose_color(class_num),
+                    )
+                draw_roi(frame, roi, close=True)
+                draw_coordinates(frame, coord_points, coord_map)
                 video_handler.write_frame_to_video(frame)
+
+            if debug:
+                # drawing other information that may be useful
+                draw_tracker_predictions(frame, tracked_objects)
+                draw_zones(frame, zone_mask)
 
             if debug and video_handler.show(frame, 10) == ord("q"):
                 video_handler.cleanup()
@@ -166,10 +181,9 @@ def process(
         results = vehicle_tracker.get_results()
     except Exception as e:
         print(e)
-        # want to write out anything processed so far in case program errors
+        # want to save anything processed so far in case program errors
         # out for whatever reason
         results = vehicle_tracker.get_results()
-
     print(f"Total Time: {time.time() - start}")  # FOR TESTING ....................
 
     # write results to csv
@@ -207,10 +221,8 @@ if __name__ == "__main__":
     debug = args.debug
     save = args.save
 
-    model_selector = ModelRegistry(ROOT_DIR / "models/")
-    valid_list = model_selector.search("detect")
-    metadata = valid_list[0]
-    model = model_selector.generate_model(metadata)
+    detector_selector = ModelRegistry(ROOT_DIR / "models/detection")
+    detector = detector_selector.generate_model("test")
 
-    output_dir = process(model, video_path, save, debug)
+    output_dir = process(detector, video_path, save, debug)
     print(f"\nOutput Directory: {output_dir}")

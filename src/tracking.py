@@ -27,7 +27,6 @@ import cv2 as cv
 import norfair
 from norfair import Tracker
 
-from config import CLASSIFIER_NUM2NAME, DETECTOR_NUM2NAME
 from src.utils.geometry import points_to_rect
 from src.utils.image import (
     get_color_from_RGB,
@@ -91,6 +90,7 @@ class _VehicleInstance:
         initial_dt: datetime.datetime,
         elapsed_time: int,
         initial_frame_index: int,
+        class_map: Dict[int, str],
     ):
         """Initialises the state for a vehicle"""
 
@@ -106,11 +106,13 @@ class _VehicleInstance:
         self._entry_direction = None
         self._current_direction = None
 
+        self._class_map = class_map
+
         self._class_estimate_bins = {
-            class_num: 0 for class_num in CLASSIFIER_NUM2NAME.keys()
+            class_num: 0 for class_num in self._class_map.keys()
         }
         self._class_confidence_bins = {
-            class_num: CumulativeAverage() for class_num in CLASSIFIER_NUM2NAME.keys()
+            class_num: CumulativeAverage() for class_num in self._class_map.keys()
         }
 
     def get_class(self) -> int:
@@ -152,7 +154,7 @@ class _VehicleInstance:
             "video_timestamp": self._video_timestamp,
             "initial_frame_index": self._initial_frame_index,
             "num_of_frames": self._num_of_detections,
-            "class": DETECTOR_NUM2NAME[cls],  # NOTE: change this later
+            "class": self._class_map[cls],
             "confidence": round(conf, 2),
             "entry_direction": self._entry_direction,
             "exit_direction": self._current_direction,
@@ -204,6 +206,7 @@ class VehicleInstanceTracker:
     def __init__(
         self,
         video_handler: VideoHandler,
+        class_map: Dict[int, str],
         distance_function,
         distance_threshold,
         roi: List[Tuple[int, int]] | None = None,
@@ -214,6 +217,7 @@ class VehicleInstanceTracker:
         initialization_delay: int = 5,
     ):
         self._video_handler = video_handler
+        self._class_map = class_map
         self._roi = roi
         self._initial_datetime = initial_datetime
         self._zone_mask = zone_mask
@@ -258,6 +262,7 @@ class VehicleInstanceTracker:
                     initial_dt=self._initial_datetime,
                     elapsed_time=elapsed_time,
                     initial_frame_index=self._video_handler.current_frame,
+                    class_map=self._class_map,
                 )
 
                 # # FOR TESTING ............................................

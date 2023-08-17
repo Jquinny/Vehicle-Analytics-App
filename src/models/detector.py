@@ -1,7 +1,12 @@
-"""module for object detector implementations"""
+"""module for object detector implementations
+
+NOTE: each detector must return a list of norfair detection objects. Those
+detection objects should be instantiated with a data dictionary in the form
+data = {"class": <int>, "conf": <float>}
+"""
 
 
-from typing import List
+from typing import List, Dict, Any
 
 import norfair
 import numpy as np
@@ -27,11 +32,11 @@ class YOLOv8Detector(BaseModel):
         params (dict):
             dictionary of possible hyperparameters required for model setup"""
         self.model = YOLO(model_path)
-        self.classes = (
+        self.classes: Dict[int, str] | None = (
             self.model.names if self.model.names else params.get("classes", None)
         )
-        self.metrics = params.get("metrics", None)
-        self.inf_params = params.get("inference_params", None)
+        self.metrics: Dict[str, Any] | None = params.get("metrics", None)
+        self.inf_params: Dict[str, Any] | None = params.get("inference_params", None)
 
     def inference(
         self, img: np.ndarray, **runtime_args
@@ -55,6 +60,9 @@ class YOLOv8Detector(BaseModel):
             results = self.model.predict(img)
 
         return self._to_norfair(results)
+
+    def get_classes(self) -> Dict[int, str | None]:
+        return self.classes
 
     def _to_norfair(
         self,
@@ -95,11 +103,11 @@ class RTDETRDetector(BaseModel):
         params (dict):
             dictionary of possible hyperparameters required for model setup"""
         self.model = RTDETR(model_path)
-        self.classes = (
+        self.classes: Dict[int, str] | None = (
             self.model.names if self.model.names else params.get("classes", None)
         )
-        self.metrics = params.get("metrics", None)
-        self.inf_params = params.get("inference_params", None)
+        self.metrics: Dict[str, Any] | None = params.get("metrics", None)
+        self.inf_params: Dict[str, Any] | None = params.get("inference_params", None)
 
     def inference(
         self, img: np.ndarray, **runtime_args
@@ -112,6 +120,9 @@ class RTDETRDetector(BaseModel):
             results = self.model.predict(img)
 
         return self._to_norfair(results)
+
+    def get_classes(self) -> Dict[int, str | None]:
+        return self.classes
 
     def _to_norfair(
         self,

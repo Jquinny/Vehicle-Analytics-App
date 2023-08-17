@@ -67,7 +67,7 @@ class ModelRegistry:
     def create_dataframe(self) -> pd.DataFrame:
         """creates a pandas dataframe containing model info"""
 
-        columns = ["folder", "mAP50", "inf speed", "num of classes"]
+        columns = ["folder", "mAP50", "inf speed (ms)", "num of classes"]
 
         model_info_list = []
         for abs_folder_dir, model_info in self._models.items():
@@ -82,7 +82,7 @@ class ModelRegistry:
                 metrics.get("avg_inference_time (ms)", None) if metrics else None
             )
             model_row["mAP50"] = map
-            model_row["inf speed"] = inf_speed
+            model_row["inf speed (ms)"] = inf_speed
 
             num_of_classes = len(classes) if classes else None
             model_row["num of classes"] = num_of_classes

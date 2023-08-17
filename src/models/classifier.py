@@ -1,11 +1,10 @@
 """module for classifier implementations"""
 
 import random
-from typing import Tuple
+from typing import Tuple, Dict
 
 import numpy as np
 
-from config import CLASSIFIER_NUM2NAME
 from src.models.base_model import BaseModel
 
 
@@ -16,10 +15,10 @@ class TestingClassifier(BaseModel):
         pass
 
     def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
-        label = random.choice(list(CLASSIFIER_NUM2NAME.keys()))
-        conf = random.random()
+        pass
 
-        return label, conf
+    def get_classes(self) -> Dict[int, str | None]:
+        pass
 
 
 class YOLOv8Classifier(BaseModel):
@@ -29,6 +28,9 @@ class YOLOv8Classifier(BaseModel):
         pass
 
     def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
+        pass
+
+    def get_classes(self) -> Dict[int, str | None]:
         pass
 
 
@@ -41,6 +43,9 @@ class ResNetClassifier(BaseModel):
     def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
         pass
 
+    def get_classes(self) -> Dict[int, str | None]:
+        pass
+
 
 class ViTClassifier(BaseModel):
     """Visual Transformer classifier"""
@@ -51,6 +56,9 @@ class ViTClassifier(BaseModel):
     def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
         pass
 
+    def get_classes(self) -> Dict[int, str | None]:
+        pass
+
 
 class ClipClassifier(BaseModel):
     """OpenAI Clip classifier"""
@@ -59,4 +67,7 @@ class ClipClassifier(BaseModel):
         pass
 
     def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
+        pass
+
+    def get_classes(self) -> Dict[int, str | None]:
         pass

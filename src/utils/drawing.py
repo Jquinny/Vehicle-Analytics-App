@@ -4,7 +4,7 @@ import cv2 as cv
 import norfair
 import numpy as np
 
-from src.utils.geometry import Point, Poly
+from src.utils.geometry import Point, Poly, Rect
 
 
 def _merge_frames(track_mask: np.ndarray, video_frame: np.ndarray):
@@ -90,6 +90,62 @@ def draw_vector(
     x = int(vec_len * np.cos(theta) + start_pt[0])
     y = int(vec_len * np.sin(theta) + start_pt[1])
     cv.arrowedLine(img, start_pt, (x, y), (0, 255, 0))
+
+
+def draw_rect(
+    img: np.ndarray,
+    rect: Rect,
+    tracker_id: str = None,
+    class_name: str = None,
+    conf: str = None,
+    color: Tuple[int, int, int] | None = None,
+):
+    """helper function for drawing bounding boxes on an image"""
+
+    top_left = rect.top_left.to_int().as_tuple()
+    bottom_right = rect.bottom_right.to_int().as_tuple()
+
+    # assign color if none assigned
+    if color is None:
+        color = (255, 0, 0)  # defaults to blue
+
+    cv.rectangle(
+        img,
+        top_left,
+        bottom_right,
+        color,
+        3,
+    )
+
+    if tracker_id or class_name or conf:
+        if not tracker_id:
+            tracker_id = ""
+        if not class_name:
+            class_name = ""
+        if not conf:
+            conf = ""
+
+        text = f"{tracker_id} {class_name} {conf:.2f}"
+        font = cv.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        font_thickness = 1
+        text_size = cv.getTextSize(text, font, font_scale, font_thickness)[0]
+
+        text_background_tl = (top_left[0], top_left[1] - text_size[1] - 5)
+        text_background_br = (top_left[0] + text_size[0], top_left[1] - 5)
+
+        cv.rectangle(img, text_background_tl, text_background_br, color, -1)
+
+        cv.putText(
+            img,
+            text,
+            (top_left[0], top_left[1] - 5),
+            font,
+            font_scale,
+            (0, 0, 0),
+            font_thickness,
+            lineType=cv.LINE_AA,
+        )
 
 
 def draw_tracker_predictions(
