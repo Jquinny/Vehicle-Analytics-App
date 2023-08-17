@@ -200,8 +200,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str,
-        help="model weight filename in form <filename>.pt",
-        default="models/detection/yolov8/small_training.pt",
+        help="relative path to directory containing model metadata and weights",
+        default="models/detection/test",
     )
     parser.add_argument(
         "--video",
@@ -216,13 +216,14 @@ if __name__ == "__main__":
     )
     parser.add_argument("--save", help="write video to a file", action="store_true")
     args = parser.parse_args()
-    model_path = args.model
+    model_dir = Path(ROOT_DIR / args.model)
     video_path = str(ROOT_DIR / args.video)
     debug = args.debug
     save = args.save
 
-    detector_selector = ModelRegistry(ROOT_DIR / "models/detection")
-    detector = detector_selector.generate_model("test")
+    detector_selector = ModelRegistry(str(model_dir.parent))
+    print(detector_selector.base_dir)
+    detector = detector_selector.generate_model(model_dir.stem)
 
     output_dir = process(detector, video_path, save, debug)
     print(f"\nOutput Directory: {output_dir}")
