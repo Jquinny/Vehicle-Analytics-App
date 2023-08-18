@@ -105,11 +105,12 @@ def process(
     initial_datetime = parse_timestamp(frame, reader)
     roi = get_roi(frame)
     draw_roi(frame, roi, close=True)  # just so user sees ROI when selecting coords
-    coord_points, coord_map = get_coordinates(frame)
+    direction_coordinates = get_coordinates(frame)
+    coord_map = {idx: dir for idx, dir in enumerate(direction_coordinates.keys())}
 
     # calculate entry/exit zone mask
     pixel_coords = np.indices(frame.shape[:2])[::-1].transpose(1, 2, 0)
-    zone_coords = np.array([pt.as_tuple() for pt in coord_points])
+    zone_coords = np.array([pt.as_tuple() for pt in direction_coordinates.values()])
     distances = np.linalg.norm(
         pixel_coords[:, :, None, :] - zone_coords[None, None, :, :], axis=-1
     )
@@ -133,9 +134,7 @@ def process(
     # NOTE: supports 20 classes for now
     Palette.set("tab20")
 
-    if debug:
-        print("beginning to process ...")
-
+    print("beginning to process ...")
     start = time.time()
     try:
         for frame in video_handler:
