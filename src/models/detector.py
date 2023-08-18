@@ -32,11 +32,11 @@ class YOLOv8Detector(BaseModel):
         params (dict):
             dictionary of possible hyperparameters required for model setup"""
         self.model = YOLO(model_path)
-        self.classes: Dict[int, str] | None = (
-            self.model.names if self.model.names else params.get("classes", None)
+        self.classes: Dict[int, str] | {} = (
+            self.model.names if self.model.names else params.get("classes", {})
         )
-        self.metrics: Dict[str, Any] | None = params.get("metrics", None)
-        self.inf_params: Dict[str, Any] | None = params.get("inference_params", None)
+        self.metrics: Dict[str, Any] | {} = params.get("metrics", {})
+        self.inf_params: Dict[str, Any] | {} = params.get("inference_params", {})
 
     def inference(
         self, img: np.ndarray, **runtime_args
@@ -103,11 +103,11 @@ class RTDETRDetector(BaseModel):
         params (dict):
             dictionary of possible hyperparameters required for model setup"""
         self.model = RTDETR(model_path)
-        self.classes: Dict[int, str] | None = (
-            self.model.names if self.model.names else params.get("classes", None)
+        self.classes: Dict[int, str] | {} = (
+            self.model.names if self.model.names else params.get("classes", {})
         )
-        self.metrics: Dict[str, Any] | None = params.get("metrics", None)
-        self.inf_params: Dict[str, Any] | None = params.get("inference_params", None)
+        self.metrics: Dict[str, Any] | {} = params.get("metrics", {})
+        self.inf_params: Dict[str, Any] | {} = params.get("inference_params", {})
 
     def inference(
         self, img: np.ndarray, **runtime_args

@@ -66,7 +66,8 @@ def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
 
     text_detections = reader.readtext(thresh, detail=0)
     for text in text_detections:
-        text = text.replace(".", ":")
+        # hacky fix for now
+        text = text.translate(str.maketrans({".": ":", ";": ":", "'": ""}))
         datetime_str = str_convert(text)
         if datetime_str:
             return datetime_str

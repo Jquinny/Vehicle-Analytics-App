@@ -7,7 +7,6 @@ basically the vehicle instance is responsible for understanding it's internal
 representation based on the external values it's being fed
 
 NOTE:
--   possibly do vehicle garbage collection when we get to 100 vehicle instances
 -   consider playing around with the period attribute of the tracker in case
     optimizations are needed (like if we use large models for detections/classifications)
 
@@ -285,7 +284,7 @@ class VehicleInstanceTracker:
             self._update_vehicle_class_(obj)
             self._update_vehicle_color(img, obj)
 
-        # purge any vehicles no longer being tracked store data in results
+        # purge any vehicles no longer being tracked and store data in results
         for global_id, vehicle in list(self._vehicles.items()):
             if global_id not in [obj.global_id for obj in tracked_objects]:
                 self._results[global_id] = vehicle.get_data()

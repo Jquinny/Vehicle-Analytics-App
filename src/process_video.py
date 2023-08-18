@@ -165,7 +165,7 @@ def process(
                         color=Palette.choose_color(class_num),
                     )
                 draw_roi(frame, roi, close=True)
-                draw_coordinates(frame, coord_points, coord_map)
+                draw_coordinates(frame, direction_coordinates)
                 video_handler.write_frame_to_video(frame)
 
             if debug:
@@ -200,7 +200,7 @@ if __name__ == "__main__":
         "--model",
         type=str,
         help="relative path to directory containing model metadata and weights",
-        default="models/detection/test",
+        default="models/detection/test_yolov8n",
     )
     parser.add_argument(
         "--video",
@@ -221,7 +221,6 @@ if __name__ == "__main__":
     save = args.save
 
     detector_selector = ModelRegistry(str(model_dir.parent))
-    print(detector_selector.base_dir)
     detector = detector_selector.generate_model(model_dir.stem)
 
     output_dir = process(detector, video_path, save, debug)
