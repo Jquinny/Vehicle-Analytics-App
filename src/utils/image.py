@@ -34,7 +34,7 @@ def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
 
     formats = {
         0: r"\d{4}-\d{2}-\d{2}T\d{2}\:\d{2}\:\d{2}-\d{4}",
-        1: r"\d{4}-\d{2}-\d{2} \d{1,2}\:\d{2}\:\d{2} (AM|PM)",
+        1: r"\d{4}-\d{2}-\d{2} \d{1,2}\:\d{2}\:\d{2} [aApP][mM]",
     }
 
     def str_convert(detected_text: str) -> datetime.datetime | None:

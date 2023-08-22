@@ -3,6 +3,7 @@ from typing import List, Dict, Tuple
 import cv2 as cv
 import numpy as np
 import sys
+import warnings
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -18,6 +19,44 @@ from src.utils.geometry import Point, Poly
 from src.utils.drawing import draw_coordinates, draw_roi, draw_text
 
 WINDOW_SIZE = (1280, 720)
+
+
+class InvalidPolygonHandler(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("Invalid Polygon")
+        self.setGeometry(100, 100, 300, 150)
+
+        self.central_widget = QWidget(self)
+        self.setCentralWidget(self.central_widget)
+
+        layout = QVBoxLayout()
+
+        instructions = (
+            "Invalid Region of Interest.\n\nMake sure no polygon sides cross at the end.\n\n"
+            "Press the retry button to retry polygon creation, or close this window to continue "
+            "without a region of interest."
+        )
+        label = QLabel(instructions, self)
+        layout.addWidget(label)
+
+        self.retry_button = QPushButton("Retry", self)
+        self.retry_button.clicked.connect(self.on_retry)
+        layout.addWidget(self.retry_button)
+
+        self.central_widget.setLayout(layout)
+
+        self.quit = True
+
+    def on_retry(self):
+        self.quit = False
+        self.close()
+
+    def closeEvent(self, event):
+        event.accept()
 
 
 class CoordinateInputDialog(QMainWindow):
@@ -57,7 +96,33 @@ class CoordinateInputDialog(QMainWindow):
         event.accept()
 
 
-def get_coordinate_input():
+def handle_invalid_polygon() -> bool:
+    """opens up a small gui for the user to choose to retry polygon input or
+    continue without ROI
+
+    Returns
+    -------
+    bool:
+        whether or not to quit the ROI selection process
+    """
+    app = QApplication(sys.argv)
+    invalid_handler = InvalidPolygonHandler()
+    invalid_handler.show()
+    app.exec_()
+
+    return invalid_handler.quit
+
+
+def get_coordinate_input() -> str | None:
+    """opens up a small gui for the user to enter the direction associated with
+    a coordinate
+
+    Returns
+    -------
+    str | None:
+        the text associated with the coordinate, or None if user didn't want
+        to keep the coordinate
+    """
     app = QApplication(sys.argv)
     dialog = CoordinateInputDialog()
     dialog.show()
@@ -89,7 +154,8 @@ def get_roi(frame: np.ndarray) -> Poly | None:
 
     instructions = (
         "Left-click to enter a polygon point. Right-click to remove. "
-        "Press enter to show final result. Press enter again to confirm."
+        "Press enter to show final result. Press enter again to confirm, or press "
+        "another key to continue."
     )
     draw_text(resized_frame, instructions, Point(x=10, y=10))
 
@@ -98,19 +164,30 @@ def get_roi(frame: np.ndarray) -> Poly | None:
     # grab ROI from user
     cv.namedWindow(window_title)
     cv.setMouseCallback(window_title, get_roi_points, data)
-    print("\nPress enter to connect final points.")
-    print("Press enter again if satisfied. Press any other key to continue editing.\n")
+
     while True:
         cv.imshow(window_title, data["copy"])
-        key = cv.waitKey(10)
-        if key == ord("\r"):  # show full polygon when user presses enter
+        if cv.waitKey(10) == ord("\r"):
+            # show final results
             data["copy"] = data["original"].copy()
             draw_roi(data["copy"], data["roi"], True)
             cv.imshow(window_title, data["copy"])
-            key = cv.waitKey(0)
-            if key == ord("\r"):
+
+            if not data["roi"].is_valid():
+                data["roi"].clear_coords()
+                if handle_invalid_polygon():
+                    cv.destroyWindow(window_title)
+                    return None
+                data["copy"] = data["original"].copy()
+                continue
+
+            if cv.waitKey(0) == ord("\r"):
                 cv.destroyWindow(window_title)
                 break
+            else:
+                # user wants to continue, reset to showing unclosed polygon
+                data["copy"] = data["original"].copy()
+                draw_roi(data["copy"], data["roi"], False)
 
     if not data["roi"].is_empty():
         # coordinate transform due to window scaling
@@ -163,7 +240,7 @@ def get_coordinates(frame: np.ndarray) -> Dict[str, Point]:
     # grab direction coordinates from user
     cv.namedWindow(window_title)
     cv.setMouseCallback(window_title, get_coordinate_points, data)
-    print("\nPress enter to confirm.")
+
     while True:
         cv.imshow(window_title, data["copy"])
         key = cv.waitKey(10)

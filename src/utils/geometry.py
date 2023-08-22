@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Tuple, List
 from dataclasses import dataclass
-import warnings
 
 import cv2 as cv
 import numpy as np
@@ -110,9 +109,6 @@ class Poly:
 
     def push(self, pt: Point):
         self.coords.append(pt)
-        if len(self) > 3 and not self.is_valid():
-            self.coords.pop()
-            warnings.warn("Invalid Point")
 
     def pop(self):
         if not self.is_empty():
