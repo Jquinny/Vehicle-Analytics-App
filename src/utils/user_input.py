@@ -36,7 +36,8 @@ class InvalidPolygonHandler(QMainWindow):
         layout = QVBoxLayout()
 
         instructions = (
-            "Invalid Region of Interest.\n\nMake sure no polygon sides cross at the end.\n\n"
+            "Invalid Region of Interest.\n\n"
+            "Make sure no polygon sides cross at the end and that there are at least 3 points.\n\n"
             "Press the retry button to retry polygon creation, or close this window to continue "
             "without a region of interest."
         )
@@ -173,7 +174,7 @@ def get_roi(frame: np.ndarray) -> Poly | None:
             draw_roi(data["copy"], data["roi"], True)
             cv.imshow(window_title, data["copy"])
 
-            if not data["roi"].is_valid():
+            if len(data["roi"]) < 3 or not data["roi"].is_valid():
                 data["roi"].clear_coords()
                 if handle_invalid_polygon():
                     cv.destroyWindow(window_title)

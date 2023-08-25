@@ -19,6 +19,7 @@ import datetime
 from typing import List, Dict, Tuple, Any
 
 import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
@@ -26,23 +27,20 @@ import cv2 as cv
 import norfair
 from norfair import Tracker
 
-from src.utils.geometry import points_to_rect
-from src.utils.image import (
-    get_color_from_RGB,
-    compute_avg_color,
-)
+from src.utils.geometry import points_to_rect, Point
 from src.utils.video import VideoHandler
 
+# This is here basically as a guideline for building the interfaces
+# and for dataframe creation
 VEHICLE_DATA_COLUMNS = {
     "timestamp": "string",
     "video_timestamp": "string",
-    "initial_frame_index": "UInt64",
-    "num_of_frames": "UInt64",
+    "initial_frame": "UInt64",
+    "total_frames": "UInt64",
     "class": "string",
     "confidence": "Float64",
     "entry_direction": "string",
     "exit_direction": "string",
-    "color": "string",
 }
 
 
@@ -72,16 +70,13 @@ class CumulativeAverage:
 class _VehicleInstance:
     """class responsible for holding a vehicles state throughout its lifespan
 
-    NOTE: this should only every be instantiated by a vehicle tracker object
+    NOTE: this should only ever be instantiated by a vehicle tracker object
 
     algorithm for bins is as follows (use this when just using single shot
     i.e. no classifier):
     For each frame the object is detected in, do:
-    1. compute bounding box area (or distance to center of image), call this w
+    1. compute bounding box area, call this w
     2. add (w * class_conf) / full_img_area to class_estimate_bins[class_num]
-    TODO: update to better math when you have time to think about it
-    -   ALSO: add classes as a parameter to __init__(). we can grab this from the
-        model and then build our bins from it instead of the hardcoded config
     """
 
     def __init__(
@@ -101,9 +96,11 @@ class _VehicleInstance:
         )
         self._video_timestamp = str(datetime.timedelta(seconds=elapsed_time))
         self._initial_frame_index = initial_frame_index
-        self._color = (CumulativeAverage(), CumulativeAverage(), CumulativeAverage())
+
+        self._entry_coord = None
+        self._current_coord = None
         self._entry_direction = None
-        self._current_direction = None
+        self._exit_direction = None
 
         self._class_map = class_map
 
@@ -113,6 +110,30 @@ class _VehicleInstance:
         self._class_confidence_bins = {
             class_num: CumulativeAverage() for class_num in self._class_map.keys()
         }
+
+    def get_data(self) -> Dict[str, Any]:
+        """returns this vehicle instance's data dictionary
+
+        Returns
+        -------
+        Dict[str, Any]:
+            the vehicle data dictionary
+        """
+        cls = self.get_class()
+        conf = self.get_class_confidence()
+
+        data = {
+            "timestamp": self._timestamp,
+            "video_timestamp": self._video_timestamp,
+            "initial_frame": self._initial_frame_index,
+            "total_frames": self._num_of_detections,
+            "class": self._class_map[cls],
+            "confidence": round(conf, 2),
+            "entry_direction": self._entry_direction,
+            "exit_direction": self._exit_direction,
+        }
+
+        return data
 
     def get_class(self) -> int:
         """returns the class num of the best estimate for the vehicle class
@@ -136,39 +157,112 @@ class _VehicleInstance:
         cls_num = self.get_class()
         return float(self._class_confidence_bins[cls_num])
 
-    def get_data(self) -> Dict[str, Any]:
-        """returns this vehicle instance's data dictionary
-
-        Returns
-        -------
-        Dict[str, Any]:
-            the vehicle data dictionary
+    def compute_directions(
+        self,
+        zone_mask: np.ndarray,
+        zone_mask_map: Dict[int, str],
+        img_w: int,
+        img_h: int,
+    ):
+        """computes the entry and exit directions based on the vehicle instances
+        entry coordinate and it's current coordinate by fitting a line between
+        them and computing the intersection of those lines and the boundaries of
+        the image
         """
-        cls = self.get_class()
-        conf = self.get_class_confidence()
-        rgb_tuple = tuple(map(int, self._color))
+        # TODO: in this scenario, just return None, None
+        assert (
+            self._entry_coord != self._current_coord
+        ), "cannot compute a line when points are equal"
 
-        data = {
-            "timestamp": self._timestamp,
-            "video_timestamp": self._video_timestamp,
-            "initial_frame_index": self._initial_frame_index,
-            "num_of_frames": self._num_of_detections,
-            "class": self._class_map[cls],
-            "confidence": round(conf, 2),
-            "entry_direction": self._entry_direction,
-            "exit_direction": self._current_direction,
-            "color": get_color_from_RGB(rgb_tuple),
-        }
+        # Fit a straight line (y = mx + b) to the two points
+        if (
+            self._current_coord.x != self._entry_coord.x
+            and self._current_coord.y != self._entry_coord.y
+        ):
+            # not vertical or horizontal, proceed with normal calcs
+            m = (self._current_coord.y - self._entry_coord.y) / (
+                self._current_coord.x - self._entry_coord.x
+            )
+            b = self._entry_coord.y - m * self._entry_coord.x
+            is_vertical, is_horizontal = False, False
+        elif self._current_coord.y == self._entry_coord.y:
+            # horizontal line
+            is_vertical, is_horizontal = False, True
+        else:
+            # vertical line
+            is_vertical, is_horizontal = True, False
 
-        return data
+        # Calculate intersections with image boundaries. Associate points to intersections
+        # by computing distance from one intersection to both points, and then associate
+        # the closest point to that intersection and the other point to the other intersection
+        if is_vertical:
+            # print("Line was vertical")
+            # top of image
+            intersection1 = np.array((self._entry_coord.x, 0)).astype(int)
+            # bottom of image
+            intersection2 = np.array((self._entry_coord.x, img_h)).astype(int)
+        elif is_horizontal:
+            # print("Line was horizontal")
+            # left of image
+            intersection1 = np.array((0, self._entry_coord.y)).astype(int)
+            # right of image
+            intersection2 = np.array((img_w, self._entry_coord.y)).astype(int)
+        else:
+            # print("Line was diagonal")
+            intersections = []
+            # top of image
+            intersections.append(np.array((-b / m, 0)).astype(int))
+            # bottom of image
+            intersections.append(np.array(((img_h - b) / m, img_h)).astype(int))
+            # left of image
+            intersections.append(np.array((0, b)).astype(int))
+            # right of image
+            intersections.append(np.array((img_w, img_w * m + b)).astype(int))
 
-    def update_direction(self, direction: str):
-        """updates the current direction, and if entry direction has not
-        been set it will set that in here
-        """
-        if self._entry_direction is None:
-            self._entry_direction = direction
-        self._current_direction = direction
+            valid_intersections = []
+            for intersect in intersections:
+                if len(valid_intersections) == 2:
+                    # edge case where line becomes perfect diagonal across the image,
+                    # causes duplicate intersection points
+                    break
+                if not intersect[0] >= 0 or not intersect[0] <= img_w:
+                    # not a valid x-coord
+                    continue
+                if not intersect[1] >= 0 or not intersect[1] <= img_h:
+                    # not a valid y-coord
+                    continue
+                valid_intersections.append(intersect)
+            # TODO: change this to be an if check and return None, None if it fails
+            assert (
+                len(valid_intersections) == 2
+            ), "incorrect number of image boundary intersections"
+
+            intersection1 = valid_intersections[0]
+            intersection2 = valid_intersections[1]
+
+        entry_inter1_dist = np.linalg.norm(intersection1 - self._entry_coord.as_numpy())
+        exit_inter1_dist = np.linalg.norm(
+            intersection1 - self._current_coord.as_numpy()
+        )
+
+        intersection1_dir = zone_mask_map[zone_mask[intersection1[1], intersection1[0]]]
+        intersection2_dir = zone_mask_map[zone_mask[intersection2[1], intersection2[0]]]
+
+        if entry_inter1_dist < exit_inter1_dist:
+            # entry point closer to intersection1 than exit point
+            self._entry_direction = intersection1_dir
+            self._exit_direction = intersection2_dir
+        else:
+            # exit point closer to intersection1 than entry point
+            self._entry_direction = intersection2_dir
+            self._exit_direction = intersection1_dir
+
+    def update_coords(self, coordinate: Point):
+        """updates the current centroid estimate of the vehicle, and if it hasn't
+        been set before then it get's set as the vehicles entry coordinate"""
+        if self._entry_coord is None:
+            self._entry_coord = coordinate
+        self._current_coord = coordinate
 
     def update_class_estimate(
         self,
@@ -180,12 +274,6 @@ class _VehicleInstance:
         """updates the class estimate and confidence bins based on model inference"""
         self._class_estimate_bins[class_num] += (weight * class_conf) / normalizer
         self._class_confidence_bins[class_num].update(class_conf)
-
-    def update_color(self, rgb: Tuple[int, int, int]):
-        """updates the color estimate for this vehicle"""
-        self._color[0].update(rgb[0])
-        self._color[1].update(rgb[1])
-        self._color[2].update(rgb[2])
 
     def increment_detection_count(self):
         """increments the number of detections for this vehicle by 1"""
@@ -264,29 +352,25 @@ class VehicleInstanceTracker:
                     class_map=self._class_map,
                 )
 
-                # # FOR TESTING ............................................
-                # cv.circle(
-                #     img,
-                #     points_to_rect(obj.last_detection.points)
-                #     .center.to_int()
-                #     .as_tuple(),
-                #     5,
-                #     (0, 0, 255),
-                #     -1,
-                # )
-                # draw_zones(img, self._zone_mask)
-                # cv.imshow("entry", img)
-                # cv.waitKey(0)
-
-            # updating tracked vehicle data
+            # increment detections count for this vehicle
             self._vehicles[obj.global_id].increment_detection_count()
-            self._update_vehicle_direction(obj)
+
+            # update vehicle centroid location
+            center = points_to_rect(obj.last_detection.points).center
+            self._vehicles[obj.global_id].update_coords(center)
+
+            # update class estimate for this vehicle
             self._update_vehicle_class_(obj)
-            self._update_vehicle_color(img, obj)
 
         # purge any vehicles no longer being tracked and store data in results
         for global_id, vehicle in list(self._vehicles.items()):
             if global_id not in [obj.global_id for obj in tracked_objects]:
+                vehicle.compute_directions(
+                    self._zone_mask,
+                    self._zone_mask_map,
+                    img.shape[1] - 1,
+                    img.shape[0] - 1,
+                )
                 self._results[global_id] = vehicle.get_data()
                 del self._vehicles[global_id]
 
@@ -309,16 +393,6 @@ class VehicleInstanceTracker:
             columns=VEHICLE_DATA_COLUMNS,
         ).astype(dtype=VEHICLE_DATA_COLUMNS)
 
-    def _update_vehicle_color(
-        self, img: np.ndarray, tracked_obj: norfair.tracker.TrackedObject
-    ):
-        """computes average color of last detection for this vehicle and then
-        updates its state
-        """
-        bbox = points_to_rect(tracked_obj.last_detection.points)
-        avg_color = compute_avg_color(img, bbox, 0.20)
-        self._vehicles[tracked_obj.global_id].update_color(avg_color)
-
     def _update_vehicle_class_(self, tracked_obj: norfair.tracker.TrackedObject):
         """updates the class estimate using the last detection matched with the
         tracked vehicle
@@ -340,11 +414,10 @@ class VehicleInstanceTracker:
             class_num, conf, weight, normalizer
         )
 
-    def _update_vehicle_direction(
-        self, tracked_obj: norfair.tracker.TrackedObject
-    ) -> str:
-        """estimates the direction the vehicle is currently at based on the zone
-        mask and zone mask map
+    def _set_vehicle_directions(self, tracked_obj: norfair.tracker.TrackedObject):
+        """estimates the entry and exit direction of the vehicle by fitting a line
+        to it's entry and last coordinates and computing the intersection points
+        of the line with the boundaries of the image
         """
         center_pt = points_to_rect(tracked_obj.last_detection.points).center.to_int()
         self._vehicles[tracked_obj.global_id].update_direction(

@@ -65,7 +65,10 @@ class ModelRegistry:
                 self._models[str(abs_dir)]["metadata"] = metadata
 
     def create_dataframe(self) -> pd.DataFrame:
-        """creates a pandas dataframe containing model info"""
+        """creates a pandas dataframe containing model info
+
+        NOTE: this is meant to display the detectors, no support for classifiers
+        """
 
         columns = ["folder", "mAP50", "inf speed (ms)", "num of classes"]
 
@@ -114,7 +117,8 @@ class ModelRegistry:
         model_info = self._models.get(str(model_folder_path), None)
         if model_info:
             model_arch = model_info["metadata"].get("architecture", None)
-            model = ModelFactory.create(model_arch=model_arch)
+            model_task = model_info["metadata"].get("task", None)
+            model = ModelFactory.create(model_arch=model_arch, task=model_task)
             model.setup(model_path=model_info["weights"], params=model_info["metadata"])
         else:
             raise ValueError("Invalid model folder")
@@ -130,7 +134,7 @@ class ModelFactory:
     """
 
     @staticmethod
-    def create(model_arch: str) -> BaseModel:
+    def create(model_arch: str, task: str) -> BaseModel:
         """factory method for generating model objects based on a specified
         model architecture
 
@@ -138,10 +142,21 @@ class ModelFactory:
         ---------
         model_arch (str):
             the model architecture
+        task (str):
+            the task being performed by the model
         """
-        if "yolov8" in model_arch:
-            return YOLOv8Detector()
-        elif "rtdetr" in model_arch:
-            return RTDETRDetector()
+
+        if task == "detect":
+            if "yolov8" in model_arch:
+                return YOLOv8Detector()
+            elif "rtdetr" in model_arch:
+                return RTDETRDetector()
+            else:
+                raise ValueError("invalid detector architecture")
+        elif task == "classify":
+            if "yolov8" in model_arch:
+                return YOLOv8Classifier()
+            else:
+                raise ValueError("invalid classifier architecture")
         else:
-            raise ValueError("invalid model architecture")
+            raise ValueError("invalid model task")

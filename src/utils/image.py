@@ -33,41 +33,62 @@ def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
     """
 
     formats = {
-        0: r"\d{4}-\d{2}-\d{2}T\d{2}\:\d{2}\:\d{2}-\d{4}",
-        1: r"\d{4}-\d{2}-\d{2} \d{1,2}\:\d{2}\:\d{2} [aApP][mM]",
+        0: r"\d{4}.\d{2}.\d{2}.\d{2}.\d{2}.\d{2}.\d{4}",
+        1: r"\d{4}.\d{2}.\d{2}.\d{1,2}.\d{2}.\d{2}.[aApP][mM]",
     }
 
     def str_convert(detected_text: str) -> datetime.datetime | None:
         """converts a string into a datetime object"""
         if re.match(formats[0], detected_text):
-            split_timestamp = detected_text.split("T")
-            date = split_timestamp[0]
-            time = split_timestamp[1].split("-")[0]
-            datetime_str = " ".join([date, time])
-            return datetime.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
-        elif re.match(formats[1], detected_text):
-            split_timestamp = detected_text.split(" ")
-            date = split_timestamp[0]
-            time = split_timestamp[1]
+            info_list = re.split(r"\D+", detected_text)
+            if len(info_list) < 6:
+                # error parsing the timestamp, just return None
+                return None
 
-            if split_timestamp[2] == "PM":
+            if len(info_list[2]) == 5:
+                # silly case where ocr reader sees T as a digit
+                silly_string = info_list[2]
+                info_list[2] = silly_string[:2]
+                info_list.insert(3, silly_string[3:])
+
+            date = "-".join(info_list[:3])
+            time = ":".join(info_list[3:6])
+
+            datetime_str = " ".join([date, time])
+            try:
+                dt = datetime.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
+            except:
+                dt = None
+            return dt
+        elif re.match(formats[1], detected_text):
+            info_list = re.split(r"\D+", detected_text)
+            if len(info_list) < 6:
+                # error parsing the timestamp, just return None
+                return None
+
+            date = "-".join(info_list[:3])
+            time = ":".join(info_list[3:6])
+
+            if detected_text[-2:] == "PM":
                 # convert to 24hr format
                 time_components = time.split(":")
                 time_components[0] = str(12 + int(time_components[0]))
                 time = ":".join(time_components)
 
             datetime_str = " ".join([date, time])
-            return datetime.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
+            try:
+                dt = datetime.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
+            except:
+                dt = None
+            return dt
         else:
             return None
 
     img_gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    _, thresh = cv.threshold(img_gray, 240, 255, cv.THRESH_BINARY)
+    _, thresh = cv.threshold(img_gray, 235, 255, cv.THRESH_BINARY)
 
     text_detections = reader.readtext(thresh, detail=0)
     for text in text_detections:
-        # hacky fix for now
-        text = text.translate(str.maketrans({".": ":", ";": ":", "'": ""}))
         datetime_str = str_convert(text)
         if datetime_str:
             return datetime_str
