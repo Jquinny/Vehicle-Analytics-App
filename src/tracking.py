@@ -1,47 +1,14 @@
-"""Vehicle class should be responsible for holding vehicle state and knowing how
-to update it (i.e. state updating functions). VehicleTracker class should be
-responsible for instantiating and deleting vehicle instances, as well as knowing
-when a vehicle should update its state and with what values
-
-basically the vehicle instance is responsible for understanding it's internal
-representation based on the external values it's being fed
-
-NOTE:
--   consider playing around with the period attribute of the tracker in case
-    optimizations are needed (like if we use large models for detections/classifications)
-
-TODO:
--   maybe add option to read in ROI and direction coordinates from a file for vehicle
-    tracker setup
-"""
-
-import datetime
+from dataclasses import dataclass
 from typing import List, Dict, Tuple, Any
+import datetime
 
-import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
-import torch
 
 import cv2 as cv
-import norfair
-from norfair import Tracker
+from norfair import Detection
 
-from src.utils.geometry import points_to_rect, Point
-from src.utils.video import VideoHandler
-
-# This is here basically as a guideline for building the interfaces
-# and for dataframe creation
-VEHICLE_DATA_COLUMNS = {
-    "timestamp": "string",
-    "video_timestamp": "string",
-    "initial_frame": "UInt64",
-    "total_frames": "UInt64",
-    "class": "string",
-    "confidence": "Float64",
-    "entry_direction": "string",
-    "exit_direction": "string",
-}
+from src.utils.geometry import points_to_rect, Point, Rect
+from src.models.base_model import BaseModel
 
 
 class CumulativeAverage:
@@ -67,28 +34,32 @@ class CumulativeAverage:
         return "average: " + str(self.average)
 
 
-class _VehicleInstance:
-    """class responsible for holding a vehicles state throughout its lifespan
-
-    NOTE: this should only ever be instantiated by a vehicle tracker object
-
-    algorithm for bins is as follows (use this when just using single shot
-    i.e. no classifier):
-    For each frame the object is detected in, do:
-    1. compute bounding box area, call this w
-    2. add (w * class_conf) / full_img_area to class_estimate_bins[class_num]
+@dataclass
+class VehicleDetection:
+    """class responsible for holding image and class related info for detections
+    of a vehicle instance
     """
+
+    img: np.ndarray
+    bbox: Rect
+    cls: int
+    conf: float
+    frame_idx: int
+
+
+class VehicleInstance:
+    """class responsible for holding a vehicles state throughout its lifespan"""
 
     def __init__(
         self,
         initial_dt: datetime.datetime,
         elapsed_time: int,
         initial_frame_index: int,
-        class_map: Dict[int, str],
+        detector_class_map: Dict[int, str],
     ):
         """Initialises the state for a vehicle"""
 
-        self._num_of_detections = 0
+        self._num_of_frames = 0
         self._timestamp = (
             str(initial_dt + datetime.timedelta(seconds=elapsed_time))
             if initial_dt
@@ -97,19 +68,36 @@ class _VehicleInstance:
         self._video_timestamp = str(datetime.timedelta(seconds=elapsed_time))
         self._initial_frame_index = initial_frame_index
 
-        self._entry_coord = None
-        self._current_coord = None
-        self._entry_direction = None
-        self._exit_direction = None
+        self._entry_coord: Point | None = None
+        self._current_coord: Point | None = None
+        self._entry_direction: str | None = None
+        self._exit_direction: str | None = None
 
-        self._class_map = class_map
+        self._detections: List[VehicleDetection] = []
 
-        self._class_estimate_bins = {
-            class_num: 0 for class_num in self._class_map.keys()
-        }
-        self._class_confidence_bins = {
-            class_num: CumulativeAverage() for class_num in self._class_map.keys()
-        }
+        self._detector_class_map = detector_class_map
+        self._detector_class_conf_bins = [
+            CumulativeAverage() for _ in range(len(detector_class_map))
+        ]
+
+        self._class: str | None = None
+        self._class_conf: float | None = None
+
+    def get_class_info(self) -> Tuple[str, float] | Tuple[None, None]:
+        """returns the class estimate and confidence for the estimate in the form
+        Tuple[str, float] if .classify() has been called, otherwise returns None, None
+        """
+        return self._class, self._class_conf
+
+    def get_direction_info(self) -> Tuple[str, str] | Tuple[None, None]:
+        """returns the entry and exit direction estimates in the form Tuple[entry, exit]
+        if .compute_directions() as been called, otherwise returns None, None
+        """
+        return self._entry_direction, self._exit_direction
+
+    def get_detections(self) -> List[VehicleDetection]:
+        """returns the uniformly distributed detections associated with this vehicle"""
+        return self._detections
 
     def get_data(self) -> Dict[str, Any]:
         """returns this vehicle instance's data dictionary
@@ -119,48 +107,73 @@ class _VehicleInstance:
         Dict[str, Any]:
             the vehicle data dictionary
         """
-        cls = self.get_class()
-        conf = self.get_class_confidence()
 
         data = {
             "timestamp": self._timestamp,
             "video_timestamp": self._video_timestamp,
             "initial_frame": self._initial_frame_index,
-            "total_frames": self._num_of_detections,
-            "class": self._class_map[cls],
-            "confidence": round(conf, 2),
+            "total_frames": self._num_of_frames,
+            "class": self._class,
+            "confidence": round(self._class_conf, 2),
             "entry_direction": self._entry_direction,
             "exit_direction": self._exit_direction,
         }
 
         return data
 
-    def get_class(self) -> int:
-        """returns the class num of the best estimate for the vehicle class
+    def classify(self, classifier: BaseModel | None = None):
+        """compute the class estimate and confidence for this vehicle instance
 
-        Returns
-        -------
-        int:
-            the best estimate class num
+        If no classifier is specified, the estimate is based on the argmax
+        of the averages of all class probabilities given for the vehicle so far.
+
+        If a classifier is specified, then the detector estimates are ignored,
+        and an ensemble-like algorithm is employed using soft-voting on the
+        average probability estimates per class over a specific number of frames
+        from this vehicles lifespan.
+
+        NOTE: the class and class confidence attributes are set after calling
+        this function so that if .get_data() is called afterwards they will be
+        included
         """
-        # NOTE: may have to add tie handling
-        return max(self._class_estimate_bins, key=self._class_estimate_bins.get)
+        if classifier is None:
+            # single stage, just get max estimate
+            cls_num = np.argmax(list(map(float, self._detector_class_conf_bins)))
+            conf = float(self._detector_class_conf_bins[cls_num])
 
-    def get_class_confidence(self) -> float:
-        """returns the confidence for the best estimate of the vehicle class
+            self._class = self._detector_class_conf_bins.get(cls_num)
+            self._class_conf = conf
+        else:
+            # two-stage, so run classifier in ensemble-like fashion
+            class_bins = np.zeros(
+                (len(self._detections), len(classifier.get_classes()))
+            )
 
-        Returns
-        -------
-        float:
-            the confidence of the best estimate class
-        """
-        cls_num = self.get_class()
-        return float(self._class_confidence_bins[cls_num])
+            for idx, det in enumerate(self._detections):
+                # slice out single object from image, making sure to clip coords
+                # outside of the image boundaries
+                bbox = det.bbox.to_int()
+                bbox.clip(det.img.shape[1], det.img.shape[0])
+                x1, y1 = bbox.top_left.as_tuple()
+                x2, y2 = bbox.bottom_right.as_tuple()
+
+                img_slice = det.img[y1:y2, x1:x2]
+                result = classifier.inference(img_slice)
+                class_bins[idx, :] = result
+
+            print(class_bins)
+            classifier_class_map = classifier.get_classes()
+            cls_estimates = np.mean(class_bins, axis=0)
+            cls_num = np.argmax(cls_estimates)
+            conf = cls_estimates[cls_num]
+
+            self._class = classifier_class_map.get(cls_num)
+            self._class_conf = conf
 
     def compute_directions(
         self,
-        zone_mask: np.ndarray,
-        zone_mask_map: Dict[int, str],
+        zone_mask: np.ndarray | None,
+        zone_mask_map: Dict[int, str] | None,
         img_w: int,
         img_h: int,
     ):
@@ -168,11 +181,17 @@ class _VehicleInstance:
         entry coordinate and it's current coordinate by fitting a line between
         them and computing the intersection of those lines and the boundaries of
         the image
+
+        NOTE: sets the class attributes for entry and exit directions so that
+        if .get_data() is called afterwards the directions will be included
         """
-        # TODO: in this scenario, just return None, None
-        assert (
-            self._entry_coord != self._current_coord
-        ), "cannot compute a line when points are equal"
+        # only one point, so cannot compute a line
+        if self._entry_coord == self._current_coord:
+            return
+
+        # no zone_mask, can't compute directions
+        if zone_mask is None or zone_mask_map is None:
+            return
 
         # Fit a straight line (y = mx + b) to the two points
         if (
@@ -232,10 +251,10 @@ class _VehicleInstance:
                     # not a valid y-coord
                     continue
                 valid_intersections.append(intersect)
-            # TODO: change this to be an if check and return None, None if it fails
-            assert (
-                len(valid_intersections) == 2
-            ), "incorrect number of image boundary intersections"
+
+            if len(valid_intersections) != 2:
+                # something funky happened and we can't compute zones
+                return
 
             intersection1 = valid_intersections[0]
             intersection2 = valid_intersections[1]
@@ -264,162 +283,28 @@ class _VehicleInstance:
             self._entry_coord = coordinate
         self._current_coord = coordinate
 
-    def update_class_estimate(
-        self,
-        class_num: int,
-        class_conf: float,
-        weight: float | int,
-        normalizer: float | int,
-    ):
+    def update_class_estimate(self, class_num: int, class_conf: float):
         """updates the class estimate and confidence bins based on model inference"""
-        self._class_estimate_bins[class_num] += (weight * class_conf) / normalizer
-        self._class_confidence_bins[class_num].update(class_conf)
+        self._detector_class_conf_bins[class_num].update(class_conf)
 
-    def increment_detection_count(self):
-        """increments the number of detections for this vehicle by 1"""
-        self._num_of_detections += 1
-
-
-class VehicleInstanceTracker:
-    """Acts as a wrapper around a norfair.tracking.Tracker object, allowing
-    for vehicle state estimation and tracking.
-
-    NOTE: currently I'm just holding on to the data and allowing it
-    to be extracted into a dataframe from outside of the instance, but if
-    the memory usage for storing all vehicles is too much I may have to change
-    this to garbage collect dead vehicles while running.
-    """
-
-    def __init__(
-        self,
-        video_handler: VideoHandler,
-        class_map: Dict[int, str],
-        distance_function,
-        distance_threshold,
-        roi: List[Tuple[int, int]] | None = None,
-        zone_mask: np.ndarray = None,
-        zone_mask_map: Dict[int, str] = None,
-        initial_datetime: datetime.datetime | None = None,
-        hit_counter_max: int = 5,
-        initialization_delay: int = 5,
-    ):
-        self._video_handler = video_handler
-        self._class_map = class_map
-        self._roi = roi
-        self._initial_datetime = initial_datetime
-        self._zone_mask = zone_mask
-        self._zone_mask_map = zone_mask_map
-
-        self._tracker = Tracker(
-            distance_function=distance_function,
-            distance_threshold=distance_threshold,
-            hit_counter_max=hit_counter_max,
-            initialization_delay=initialization_delay,
-        )
-        self._vehicles: Dict[int, _VehicleInstance] = {}
-        self._results: Dict[int, Dict[str, Any]] = {}
-
-    def update(
-        self,
-        img: np.ndarray,
-        detections: List[norfair.tracker.Detection],
-    ) -> List[norfair.tracker.TrackedObject]:
-        """updates the states of all active vehicle instances
-
-        Arguments
-        ---------
-        detections (List[norfair.tracker.Detection]):
-            list of norfair detection objects obtained after detection+classification
-
-        Returns
-        -------
-        List[norfair.tracker.TrackedObject]:
-            the list of active objects
+    def update_detections(self, detections: List[Detection]):
+        """updates the detections stored for this vehicle. Should be relatively
+        uniformly distributed across its lifespan (according to norfair library)
         """
-        tracked_objects = self._tracker.update(detections)
-
-        for obj in tracked_objects:
-            if obj.global_id not in self._vehicles.keys():
-                elapsed_time = int(
-                    self._video_handler.current_frame / self._video_handler.fps
+        updated_dets = []
+        for det in detections:
+            updated_dets.append(
+                VehicleDetection(
+                    img=det.data.get("img"),
+                    bbox=points_to_rect(det.points),
+                    cls=det.data.get("class"),
+                    conf=det.data.get("conf"),
+                    frame_idx=det.data.get("frame_idx"),
                 )
+            )
+        # Just overwriting for now, may change in the future
+        self._detections = updated_dets
 
-                # initialize new vehicle instance
-                self._vehicles[obj.global_id] = _VehicleInstance(
-                    initial_dt=self._initial_datetime,
-                    elapsed_time=elapsed_time,
-                    initial_frame_index=self._video_handler.current_frame,
-                    class_map=self._class_map,
-                )
-
-            # increment detections count for this vehicle
-            self._vehicles[obj.global_id].increment_detection_count()
-
-            # update vehicle centroid location
-            center = points_to_rect(obj.last_detection.points).center
-            self._vehicles[obj.global_id].update_coords(center)
-
-            # update class estimate for this vehicle
-            self._update_vehicle_class_(obj)
-
-        # purge any vehicles no longer being tracked and store data in results
-        for global_id, vehicle in list(self._vehicles.items()):
-            if global_id not in [obj.global_id for obj in tracked_objects]:
-                vehicle.compute_directions(
-                    self._zone_mask,
-                    self._zone_mask_map,
-                    img.shape[1] - 1,
-                    img.shape[0] - 1,
-                )
-                self._results[global_id] = vehicle.get_data()
-                del self._vehicles[global_id]
-
-        return tracked_objects
-
-    def get_results(self) -> pd.DataFrame:
-        """aggregates all tracked vehicle data into a dataframe
-
-        NOTE: may want to do this when a vehicle dies and not all at once at the
-        end (if we end up having a LOT of vehicles appear this could get memory
-        intensive storing it all the whole time)
-
-        Returns
-        -------
-        pd.DataFrame:
-            the dataframe containing a row of data for each vehicle instance
-        """
-        return pd.DataFrame(
-            [data for _, data in self._results.items()],
-            columns=VEHICLE_DATA_COLUMNS,
-        ).astype(dtype=VEHICLE_DATA_COLUMNS)
-
-    def _update_vehicle_class_(self, tracked_obj: norfair.tracker.TrackedObject):
-        """updates the class estimate using the last detection matched with the
-        tracked vehicle
-        """
-        assert isinstance(
-            tracked_obj.last_detection.data, dict
-        ), "need data dict for detections"
-
-        class_num = tracked_obj.last_detection.data.get("class", None)
-        conf = tracked_obj.last_detection.data.get("conf", None)
-
-        bbox = points_to_rect(tracked_obj.last_detection.points)
-        weight = bbox.area
-        normalizer = (
-            self._video_handler.resolution[0] * self._video_handler.resolution[1]
-        )
-
-        self._vehicles[tracked_obj.global_id].update_class_estimate(
-            class_num, conf, weight, normalizer
-        )
-
-    def _set_vehicle_directions(self, tracked_obj: norfair.tracker.TrackedObject):
-        """estimates the entry and exit direction of the vehicle by fitting a line
-        to it's entry and last coordinates and computing the intersection points
-        of the line with the boundaries of the image
-        """
-        center_pt = points_to_rect(tracked_obj.last_detection.points).center.to_int()
-        self._vehicles[tracked_obj.global_id].update_direction(
-            self._zone_mask_map[self._zone_mask[center_pt.y, center_pt.x]]
-        )
+    def increment_frame_count(self):
+        """increments the number of frames this vehicle has been alive for"""
+        self._num_of_frames += 1

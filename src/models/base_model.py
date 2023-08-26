@@ -15,7 +15,7 @@ class BaseModel(ABC):
     @abstractmethod
     def inference(
         self, img: np.ndarray, **runtime_args
-    ) -> Tuple[int, float] | List[norfair.tracker.Detection]:
+    ) -> List[float] | List[norfair.tracker.Detection]:
         pass
 
     @abstractmethod

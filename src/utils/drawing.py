@@ -1,6 +1,8 @@
 from typing import List, Tuple, Dict
+import math
 
 import cv2 as cv
+import matplotlib.pyplot as plt
 import norfair
 import numpy as np
 
@@ -236,3 +238,20 @@ def draw_tracklets(
         tracklet_frame = path_drawer.draw(frame, tracked_objects)
 
     frame = _merge_frames(tracklet_frame, frame)
+
+
+def plot_images(images, titles=None):
+    """helper function for plotting multiple images in a subplot."""
+
+    if titles is not None:
+        assert len(images) == len(titles), "# of titles does not match # of images"
+
+    nrows = math.ceil(math.sqrt(len(images)))
+    fig, axes = plt.subplots(nrows=nrows, ncols=nrows)  # square grid
+    for idx, ax in enumerate(axes.flat):
+        if idx < len(images):
+            ax.imshow(images[idx])
+            if titles is not None:
+                ax.set_title(titles[idx])
+        ax.axis("off")
+    plt.show()

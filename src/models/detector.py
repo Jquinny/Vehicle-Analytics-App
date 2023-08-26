@@ -59,13 +59,14 @@ class YOLOv8Detector(BaseModel):
             # no inference params specified, using defaults
             results = self.model.predict(img)
 
-        return self._to_norfair(results)
+        return self._to_norfair(img, results)
 
     def get_classes(self) -> Dict[int, str | None]:
         return self.classes
 
     def _to_norfair(
         self,
+        img: np.ndarray,
         yolo_detections: torch.tensor,
     ) -> List[Detection]:
         """convert detections_as_xywh to norfair detections"""
@@ -75,7 +76,7 @@ class YOLOv8Detector(BaseModel):
         for detection in yolo_detections[0].boxes:
             bbox_as_xyxy = detection.cpu().numpy().xyxy.astype(int)
             score = detection.cpu().numpy().conf.item()
-            cls = detection.cpu().numpy().cls.item()
+            cls = int(detection.cpu().numpy().cls.item())
             bbox = np.array(
                 [
                     [bbox_as_xyxy[0, 0], bbox_as_xyxy[0, 1]],
@@ -83,7 +84,7 @@ class YOLOv8Detector(BaseModel):
                 ]
             )
             norfair_detections.append(
-                Detection(points=bbox, data={"class": cls, "conf": score})
+                Detection(points=bbox, data={"img": img, "class": cls, "conf": score})
             )
 
         return norfair_detections
@@ -135,7 +136,7 @@ class RTDETRDetector(BaseModel):
         for detection in rtdetr_detections[0].boxes:
             bbox_as_xyxy = detection.cpu().numpy().xyxy.astype(int)
             score = detection.cpu().numpy().conf.item()
-            cls = detection.cpu().numpy().cls.item()
+            cls = int(detection.cpu().numpy().cls.item())
             bbox = np.array(
                 [
                     [bbox_as_xyxy[0, 0], bbox_as_xyxy[0, 1]],
@@ -160,6 +161,9 @@ class FasterRCNNDetector(BaseModel):
     ) -> List[norfair.tracker.Detection]:
         pass
 
+    def get_classes(self) -> Dict[int, str | None]:
+        pass
+
 
 class EfficientDetDetector(BaseModel):
     """EfficientDet object detector"""
@@ -170,4 +174,7 @@ class EfficientDetDetector(BaseModel):
     def inference(
         self, img: np.ndarray, **runtime_args
     ) -> List[norfair.tracker.Detection]:
+        pass
+
+    def get_classes(self) -> Dict[int, str | None]:
         pass

@@ -1,7 +1,7 @@
 """module for classifier implementations"""
 
 import random
-from typing import Tuple, Dict, Any
+from typing import List, Dict, Any
 
 import numpy as np
 
@@ -16,7 +16,7 @@ class TestingClassifier(BaseModel):
     def setup(self, model_path: str, params: dict):
         pass
 
-    def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
+    def inference(self, img: np.ndarray, **runtime_args) -> List[float]:
         pass
 
     def get_classes(self) -> Dict[int, str | None]:
@@ -43,7 +43,7 @@ class YOLOv8Classifier(BaseModel):
         self.metrics: Dict[str, Any] | {} = params.get("metrics", {})
         self.inf_params: Dict[str, Any] | {} = params.get("inference_params", {})
 
-    def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
+    def inference(self, img: np.ndarray, **runtime_args) -> List[float]:
         """run inference on an image using the models stored inference
         parameters (if any) as well as inference parameters given at runtime
         (if any)
@@ -54,6 +54,13 @@ class YOLOv8Classifier(BaseModel):
             the image to run inference on
         **runtime_args:
             any keyword arguments to be used as inference parameters
+
+        Returns
+        -------
+        List[float]:
+            list with length equal to the number of classes this classifier can
+            classify, where each index corresponds to a class num and the value
+            there corresponds to the confidence prediction
         """
         self.inf_params.update(runtime_args)
         if self.inf_params:
@@ -62,9 +69,10 @@ class YOLOv8Classifier(BaseModel):
             # no inference params specified, using defaults
             results = self.model.predict(img)
 
-        print(results)
+        confidences = np.array([0] * len(self.classes)).astype(float)
+        confidences[results[0].probs.top5] = results[0].probs.top5conf.cpu().numpy()
 
-        return results
+        return list(confidences)
 
     def get_classes(self) -> Dict[int, str | None]:
         return self.classes
@@ -76,7 +84,7 @@ class ResNetClassifier(BaseModel):
     def setup(self, model_path: str, params: dict):
         pass
 
-    def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
+    def inference(self, img: np.ndarray, **runtime_args) -> List[float]:
         pass
 
     def get_classes(self) -> Dict[int, str | None]:
@@ -89,7 +97,7 @@ class ViTClassifier(BaseModel):
     def setup(self, model_path: str, params: dict):
         pass
 
-    def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
+    def inference(self, img: np.ndarray, **runtime_args) -> List[float]:
         pass
 
     def get_classes(self) -> Dict[int, str | None]:
@@ -102,7 +110,7 @@ class ClipClassifier(BaseModel):
     def setup(self, model_path: str, params: dict):
         pass
 
-    def inference(self, img: np.ndarray, **runtime_args) -> Tuple[int, float]:
+    def inference(self, img: np.ndarray, **runtime_args) -> List[float]:
         pass
 
     def get_classes(self) -> Dict[int, str | None]:
