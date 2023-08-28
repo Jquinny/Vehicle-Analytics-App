@@ -129,8 +129,6 @@ class ModelRegistry:
 class ModelFactory:
     """generic model factory for generating different types of models like
     detectors, classifiers, and possibly even ReID models
-
-    NOTE: only supports yolov8 and rtdetr for now
     """
 
     @staticmethod

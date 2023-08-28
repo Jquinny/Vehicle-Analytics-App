@@ -3,7 +3,6 @@ from typing import List, Dict, Tuple
 import cv2 as cv
 import numpy as np
 import sys
-import warnings
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -19,6 +18,51 @@ from src.utils.geometry import Point, Poly
 from src.utils.drawing import draw_coordinates, draw_roi, draw_text
 
 WINDOW_SIZE = (1280, 720)
+
+
+class RequiredInputFoundMenu(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("Required Input Found")
+        self.setGeometry(100, 100, 300, 150)
+
+        self.central_widget = QWidget(self)
+        self.setCentralWidget(self.central_widget)
+
+        layout = QVBoxLayout()
+
+        instructions = (
+            "File containing ROI polygon and direction coordinates found for this\n"
+            "camera view, would you like to use them? Press yes to use existing information.\n"
+            "Press no to continue to ROI and direction coordinate selection."
+        )
+        label = QLabel(instructions, self)
+        layout.addWidget(label)
+
+        self.yes_button = QPushButton("Yes", self)
+        self.yes_button.clicked.connect(self.on_yes)
+        layout.addWidget(self.yes_button)
+
+        self.no_button = QPushButton("No", self)
+        self.no_button.clicked.connect(self.on_no)
+        layout.addWidget(self.no_button)
+
+        self.central_widget.setLayout(layout)
+
+        self.use_existing = False
+
+    def on_yes(self):
+        self.use_existing = True
+        self.close()
+
+    def on_no(self):
+        self.close()
+
+    def closeEvent(self, event):
+        event.accept()
 
 
 class InvalidPolygonHandler(QMainWindow):
@@ -95,6 +139,25 @@ class CoordinateInputDialog(QMainWindow):
 
     def closeEvent(self, event):
         event.accept()
+
+
+def check_existing_user_input() -> bool:
+    """if .json file containing required user input such as ROI and coordinates
+    exists in the parent directory of the video being processed, pops up a gui
+    for the user to select if they want to use the information in that file or not
+
+    Returns
+    -------
+    bool:
+        whether to use existing user input or not
+    """
+
+    app = QApplication(sys.argv)
+    dialog = RequiredInputFoundMenu()
+    dialog.show()
+    app.exec_()
+
+    return dialog.use_existing
 
 
 def handle_invalid_polygon() -> bool:

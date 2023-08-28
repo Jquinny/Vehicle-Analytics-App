@@ -1,8 +1,10 @@
 """Main script for running the full vehicle analysis pipeline."""
 from typing import List, Tuple, Dict, Any, Optional
 from contextlib import contextmanager
+from collections import defaultdict
 from pathlib import Path, PosixPath, WindowsPath
 import pathlib
+import json
 import argparse
 import time
 import warnings
@@ -18,19 +20,18 @@ from norfair.utils import print_objects_as_table  # for testing ............
 from norfair.drawing import Palette
 
 from config import ROOT_DIR, VEHICLE_DATA_COLUMNS
-from src.tracking import VehicleInstance, VehicleDetection
+from src.tracking import VehicleInstance
 from src.models.base_model import BaseModel
-from src.utils.user_input import get_roi, draw_roi, get_coordinates
+from src.utils.user_input import get_roi, get_coordinates, check_existing_user_input
 from src.utils.drawing import (
     draw_roi,
     draw_coordinates,
-    draw_detector_predictions,
     draw_rect,
     draw_tracker_predictions,
     draw_zones,
     plot_images,
 )
-from src.utils.geometry import points_to_rect
+from src.utils.geometry import points_to_rect, Point, Poly
 from src.utils.image import parse_timestamp
 from src.utils.video import VideoHandler
 from src.model_registry import ModelRegistry
@@ -64,22 +65,13 @@ def set_posix_windows():
         pathlib.PosixPath = posix_backup
 
 
-def ENMS(
-    classes: List[int],
-    confidences: List[float],
-    feature_vecs: List[Any],
-    similarity_thresh: float = 0.5,
-) -> float:
-    """computes the image ..."""
-    pass
-
-
 def process(
     video_path: str,
     detector: BaseModel,
     classifier: BaseModel | None = None,
     active_learning: bool = False,
     active_learning_classes: List[int] | None = None,
+    active_learning_budget: int = 100,
     save_video: bool = False,
     debug: bool = False,
 ) -> str:
@@ -100,6 +92,9 @@ def process(
         whether to save low confidence frames for active learning
     active_learning_classes: (List[int] | None):
         the classes to be captured when doing active learning
+    active_learning_budget (int):
+        the max amount of images that can be extracted for active learning
+        from this video
     save_video (bool):
         if true, save output video with bounding boxes and classes drawn on frames
     debug (bool):
@@ -114,7 +109,6 @@ def process(
     if debug:
         print("Setting up ...")
 
-    # automatically set device for inferencing
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     if debug:
         print(f"using device {device}")
@@ -128,31 +122,54 @@ def process(
         warnings.warn("output directory already exists, overwriting previous data")
     video_handler = VideoHandler(input_path=str(video_path), output_dir=str(output_dir))
 
-    # setup ocr model
     reader = easyocr.Reader(["en"])
 
-    # setting the distance parameters for the tracker
     distance_function = "iou"
     distance_threshold = DISTANCE_THRESHOLD_BBOX
 
+    # try and grab timestamp from the first video frame
     first_frame = video_handler.get_frame(0)
-
-    # try and grab timestamp from the video roi, direction coordinates, and timestamp
     initial_datetime = parse_timestamp(first_frame, reader)
 
-    # get roi from the user
-    roi = get_roi(first_frame)
-    # if roi:
-    #     roi_mask = np.zeros(frame.shape[:2], dtype="uint8")
-    #     cv.fillPoly(
-    #         roi_mask,
-    #         [np.array([pt.as_tuple() for pt in roi.to_int()])],
-    #         (255, 255, 255),
-    #     )
+    # check if this camera view already has roi and coordinates
+    json_file_list = list(video_path.parent.glob("user_input.json"))
+    use_existing = False
+    if json_file_list:
+        use_existing = check_existing_user_input()
 
-    # get direction coordinates from the user
-    draw_roi(first_frame, roi, close=True)
-    direction_coordinates = get_coordinates(first_frame)
+    if use_existing:
+        # load in existing roi and direction coordinates
+        with open(str(json_file_list[0]), "r") as f:
+            data = json.load(f)
+            roi = Poly([Point(x=x, y=y) for x, y in data.get("roi")])
+            direction_coordinates = {
+                dir: Point(*pt) for dir, pt in data.get("coordinates").items()
+            }
+    else:
+        # get roi from the user
+        roi = get_roi(first_frame)
+        # if roi:
+        #     roi_mask = np.zeros(frame.shape[:2], dtype="uint8")
+        #     cv.fillPoly(
+        #         roi_mask,
+        #         [np.array([pt.as_tuple() for pt in roi.to_int()])],
+        #         (255, 255, 255),
+        #     )
+
+        # get direction coordinates from the user
+        draw_roi(first_frame, roi, close=True)
+        direction_coordinates = get_coordinates(first_frame)
+
+        # save new json holding the roi and coordinate information
+        json_file = str(video_path.parent / "user_input.json")
+        with open(json_file, "w") as f:
+            data = {
+                "roi": [pt.as_tuple() for pt in roi] if roi is not None else [],
+                "coordinates": {
+                    dir: pt.as_tuple() for dir, pt in direction_coordinates.items()
+                },
+            }
+            json.dump(data, f)
 
     # setup entry and exit zones based on user specified direction coordinates
     zone_mask: np.ndarray = None
@@ -184,8 +201,8 @@ def process(
     # for storing csv row results
     results: Dict[int, Dict[str, Any]] = dict()
 
-    # for storing active learning frame numbers and the corresponding image frame
-    active_learning_frames: Dict[int, np.ndarray] = {}
+    # for storing active learning frames and their corresponding detections
+    active_learning_frames: defaultdict[int, List[Detection]] = defaultdict(lambda: [])
 
     # color map for visualizing bounding boxes and class estimates
     # NOTE: supports 20 classes for now
@@ -219,9 +236,10 @@ def process(
             # no roi means all are valid
             valid_detections: List[Detection] = norfair_detections
 
-        for det in valid_detections:
-            # add frame index to detection objects data for future processing
-            det.data["frame_idx"] = frame_idx
+        if active_learning:
+            # need frame indexes stored with detections for active learning
+            for det in valid_detections:
+                det.data["frame_idx"] = frame_idx
 
         # update tracker with new valid detections
         tracked_objects: List[TrackedObject] = tracker.update(valid_detections)
@@ -239,10 +257,6 @@ def process(
                 )
             vehicles[obj.global_id].increment_frame_count()
 
-            # update detection frames if active learning is on or using two-stage
-            if classifier is not None or active_learn:
-                vehicles[obj.global_id].update_detections(obj.past_detections)
-
             # hacky way to check if this obj actually got a match on this frame
             # or if they are just still alive but with no new information to give
             if obj.last_detection.age == obj.age:
@@ -253,6 +267,10 @@ def process(
                 # can use last detection to get better estimate of centroid
                 center = points_to_rect(obj.last_detection.points).center
                 vehicles[obj.global_id].update_coords(center)
+
+                # update detection frames if active learning is on or using two-stage
+                if classifier is not None or active_learning:
+                    vehicles[obj.global_id].update_detections(obj.past_detections)
             else:
                 # approximate centroid of vehicle using kalman filter state
                 center = points_to_rect(obj.estimate).center
@@ -261,6 +279,7 @@ def process(
         # purge any vehicles no longer being tracked and store data in results
         for global_id, vehicle in list(vehicles.items()):
             if global_id not in [obj.global_id for obj in tracked_objects]:
+                # compute necessary vehicle metadata for extraction
                 vehicle.compute_directions(
                     zone_mask,
                     zone_mask_map,
@@ -268,17 +287,25 @@ def process(
                     video_handler.resolution[1] - 1,
                 )
                 vehicle.classify(classifier)
-                if active_learning:
-                    # TODO: store first, middle, and last frame of past detections
-                    # in a folder in the output directory. Make sure to
-                    # store them in the yolo .txt format
-                    pass
+
+                # add frames for active learning computation if this vehicle
+                # class was toggled by the user
+                if (
+                    active_learning
+                    and vehicle.get_class_info()[0] in active_learning_classes
+                ):
+                    for det in vehicle.get_detections():
+                        frame_idx = det.data.get("frame_idx")
+                        active_learning_frames[frame_idx].append(det)
+
                 if classifier is not None:  # for testing
-                    plot_images([det.img for det in vehicle._detections])  # for testing
+                    plot_images(
+                        [det.data.get("img") for det in vehicle._detections]
+                    )  # for testing
                 results[global_id] = vehicle.get_data()
                 del vehicles[global_id]
 
-        # -------------- drawing output and whatnot below ---------------------
+        # -------------- drawing output and whatnot below -------------------- #
         frame_copy = frame.copy()
         if debug or save_video:
             # draw necessary info
@@ -322,6 +349,18 @@ def process(
     csv_path = str(output_dir / (video_path.stem + ".csv"))
     results_df.to_csv(csv_path, header=True, index=False, mode="w")
 
+    if active_learning:
+        # find optimal active learning frames and write them to folder
+        """
+        TODO:
+        - iterate over all frames in the dictionary and extract info into necessary
+        lists
+        - associate the entropy value for the frame into the dictionary value
+        for that frame (after running ENMS on it)
+        - run diverse prototype to find optimal images
+        """
+        pass
+
     return str(output_dir)
 
 
@@ -342,15 +381,21 @@ if __name__ == "__main__":
         default="videos/test/vehicle-counting.mp4",
     )
     parser.add_argument(
-        "--classes",
+        "--active-learn",
+        help="save low confidence frames for active learning",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--active-learning-classes",
         type=int,
         nargs="+",
         help="list of classes to pull frames for active learning",
     )
     parser.add_argument(
-        "--active-learn",
-        help="save low confidence frames for active learning",
-        action="store_true",
+        "--active-learning-budget",
+        type=int,
+        help="the max amount of images that can be extracted for active learning from this video",
+        default=100,
     )
     parser.add_argument(
         "--two-stage",
@@ -366,9 +411,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     model_dir = Path(ROOT_DIR / args.model)
     video_path = str(ROOT_DIR / args.video)
-    active_learn = args.active_learn
-    debug = args.debug
-    save = args.save
 
     detector_selector = ModelRegistry(str(model_dir.parent))
     detector = detector_selector.generate_model(model_dir.stem)
@@ -386,6 +428,7 @@ if __name__ == "__main__":
         classifier=classifier,
         active_learning=args.active_learn,
         active_learning_classes=args.classes,
+        active_learning_budget=args.active_learning_budget,
         save_video=args.save,
         debug=args.debug,
     )

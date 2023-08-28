@@ -127,6 +127,7 @@ class RTDETRDetector(BaseModel):
 
     def _to_norfair(
         self,
+        img: np.ndarray,
         rtdetr_detections: torch.tensor,
     ) -> List[Detection]:
         """convert detections_as_xywh to norfair detections"""
@@ -144,7 +145,7 @@ class RTDETRDetector(BaseModel):
                 ]
             )
             norfair_detections.append(
-                Detection(points=bbox, data={"class": cls, "conf": score})
+                Detection(points=bbox, data={"img": img, "class": cls, "conf": score})
             )
 
         return norfair_detections

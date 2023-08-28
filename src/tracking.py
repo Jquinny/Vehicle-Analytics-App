@@ -34,17 +34,17 @@ class CumulativeAverage:
         return "average: " + str(self.average)
 
 
-@dataclass
-class VehicleDetection:
-    """class responsible for holding image and class related info for detections
-    of a vehicle instance
-    """
+# @dataclass
+# class VehicleDetection:
+#     """class responsible for holding image and class related info for detections
+#     of a vehicle instance
+#     """
 
-    img: np.ndarray
-    bbox: Rect
-    cls: int
-    conf: float
-    frame_idx: int
+#     img: np.ndarray
+#     bbox: Rect
+#     cls: int
+#     conf: float
+#     frame_idx: int
 
 
 class VehicleInstance:
@@ -73,7 +73,7 @@ class VehicleInstance:
         self._entry_direction: str | None = None
         self._exit_direction: str | None = None
 
-        self._detections: List[VehicleDetection] = []
+        self._detections: List[Detection] = []
 
         self._detector_class_map = detector_class_map
         self._detector_class_conf_bins = [
@@ -95,7 +95,7 @@ class VehicleInstance:
         """
         return self._entry_direction, self._exit_direction
 
-    def get_detections(self) -> List[VehicleDetection]:
+    def get_detections(self) -> List[Detection]:
         """returns the uniformly distributed detections associated with this vehicle"""
         return self._detections
 
@@ -141,10 +141,10 @@ class VehicleInstance:
             cls_num = np.argmax(list(map(float, self._detector_class_conf_bins)))
             conf = float(self._detector_class_conf_bins[cls_num])
 
-            self._class = self._detector_class_conf_bins.get(cls_num)
+            self._class = self._detector_class_map[cls_num]
             self._class_conf = conf
         else:
-            # two-stage, so run classifier in ensemble-like fashion
+            # two-stage, so run classifier in ensemble-like fashion on stored frames
             class_bins = np.zeros(
                 (len(self._detections), len(classifier.get_classes()))
             )
@@ -152,16 +152,20 @@ class VehicleInstance:
             for idx, det in enumerate(self._detections):
                 # slice out single object from image, making sure to clip coords
                 # outside of the image boundaries
-                bbox = det.bbox.to_int()
-                bbox.clip(det.img.shape[1], det.img.shape[0])
+                bbox = points_to_rect(det.points).to_int()
+                img = det.data.get("img")
+                bbox.clip(img.shape[1], img.shape[0])
                 x1, y1 = bbox.top_left.as_tuple()
                 x2, y2 = bbox.bottom_right.as_tuple()
 
-                img_slice = det.img[y1:y2, x1:x2]
+                img_slice = img[y1:y2, x1:x2]
                 result = classifier.inference(img_slice)
                 class_bins[idx, :] = result
 
-            print(class_bins)
+                # update the class stored in the detections in case active
+                # learning is toggled
+                det.data["class"] = np.argmax(result)
+
             classifier_class_map = classifier.get_classes()
             cls_estimates = np.mean(class_bins, axis=0)
             cls_num = np.argmax(cls_estimates)
@@ -291,19 +295,19 @@ class VehicleInstance:
         """updates the detections stored for this vehicle. Should be relatively
         uniformly distributed across its lifespan (according to norfair library)
         """
-        updated_dets = []
-        for det in detections:
-            updated_dets.append(
-                VehicleDetection(
-                    img=det.data.get("img"),
-                    bbox=points_to_rect(det.points),
-                    cls=det.data.get("class"),
-                    conf=det.data.get("conf"),
-                    frame_idx=det.data.get("frame_idx"),
-                )
-            )
+        # updated_dets = []
+        # for det in detections:
+        #     updated_dets.append(
+        #         VehicleDetection(
+        #             img=det.data.get("img"),
+        #             bbox=points_to_rect(det.points),
+        #             cls=det.data.get("class"),
+        #             conf=det.data.get("conf"),
+        #             frame_idx=det.data.get("frame_idx"),
+        #         )
+        #     )
         # Just overwriting for now, may change in the future
-        self._detections = updated_dets
+        self._detections = detections
 
     def increment_frame_count(self):
         """increments the number of frames this vehicle has been alive for"""
