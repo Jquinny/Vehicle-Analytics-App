@@ -2,10 +2,10 @@
 # Import video inside pyqt by frame                             check
 # sort csv file by enter time/confi, filter csv by checkbox     check
 # add option for user to choose model type / model weight.    check
-# time changes when drag the video progres bar.
-# Export button to renew csv file will edit inside the pyqt app.
-# add button aloud user to take screenshot for the keyframe of the video.
-# aloud user get a uoi to start data processing.
+# time changes when drag the video progres bar.                check
+# Export button to renew csv file will edit inside the pyqt app.        check
+# add button aloud user to take screenshot for the keyframe of the video.     check
+# aloud user get a uoi to start data processing.                          
 #
 # -*- coding: utf-8 -*-
 
@@ -26,11 +26,9 @@ from PyQt5.QtWidgets import QFileDialog, QLabel, QTableWidgetItem
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5 import QtWidgets, QtCore
-from pathlib import Path
-
 
 class Ui_TruckAnalytics(object):
-    def setupUi(self, TruckAnalytics):
+    def setupUi(self, TruckAnalytics): 
         TruckAnalytics.setObjectName("TruckAnalytics")
         TruckAnalytics.resize(1242, 789)
         self.centralwidget = QtWidgets.QWidget(TruckAnalytics)
@@ -60,11 +58,8 @@ class Ui_TruckAnalytics(object):
 
         self.tableW = QtWidgets.QTableWidget(self.centralwidget)
         self.tableW.setGeometry(QtCore.QRect(590, 50, 501, 681))
-        self.tableW.setColumnCount(5)
-        # self.tableW.selectionModel().selectionChanged.connect(self.csv_video_connect)
-        self.tableW.setHorizontalHeaderLabels(
-            ["class", "confi", "entertime", "exit time", "framecount"]
-        )
+        self.tableW.setColumnCount(20)
+        self.tableW.selectionModel().selectionChanged.connect(self.csv_video_connect)
 
         self.videoplayer = QtWidgets.QLabel("Video player", self.centralwidget)
         self.videoplayer.setGeometry(QtCore.QRect(30, 60, 531, 371))
@@ -224,6 +219,7 @@ class Ui_TruckAnalytics(object):
         self.debug = 1
         self.lastFrame = None  # use to check last frame
         self.filepath2 = None
+        self.HeaderLable = None
 
     def retranslateUi(self, TruckAnalytics):
         _translate = QtCore.QCoreApplication.translate
@@ -269,29 +265,37 @@ class Ui_TruckAnalytics(object):
 
     def Process_Video(self):
         # This button is use for process a new video.
-        pass
-
+        # 1) select a new mp4 video
+        # 2）jump to model selection page and do selection.
+        filepath1, _ = QFileDialog.getOpenFileName(None)  # filepath1 is the selected MP4 video path
+        from ModelSelectUI import showModelSel
+        modelJson = showModelSel()
+        print(modelJson)
+           
     def load_data(self):
         # upload correct type of document
         # if document type is mp4, then process it as a video.
         # if document type is csv, then process it as a csv file.
         # Other document type will raise an error.
-        self.filepath2, _ = QFileDialog.getOpenFileName(None)
-        filename = os.path.basename(self.filepath2)  # find the file name
+        filepath2, _ = QFileDialog.getOpenFileName(None)
+        filename = os.path.basename(filepath2)  # find the file name
         if filename.endswith(
             ".csv"
         ):  # If the loaded data is a csv file, then process it as a csv.
             # print("This is a csv file")
-            with open(self.filepath2, "r") as file:
+            self.filepath2 = filepath2
+            with open(filepath2, "r") as file:
                 self.data = list(csv.reader(file))  # if file != *.csv  raise Exception
+            self.HeaderLable = self.data.pop(0)
+            self.tableW.setHorizontalHeaderLabels(self.HeaderLable)     # Set header with using 1st row of csv
             self.load_data_to_table()
 
         elif filename.endswith(
             ".mp4"
         ):  # if the loaded data is a mp4 videl, then process it as a mp4 video.
             # print("This is a mp4 video.")
-            self.program = self.filepath2
-            self.video_capture = cv2.VideoCapture(self.filepath2)
+            self.program = filepath2
+            self.video_capture = cv2.VideoCapture(filepath2)
             self.total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
             self.fps = int(self.video_capture.get(cv2.CAP_PROP_FPS))
             self.Slider.setRange(0, self.total_frames - 1)
@@ -306,7 +310,6 @@ class Ui_TruckAnalytics(object):
         return f"{int(h):02}:{int(m):02}:{int(s):02}"
 
     def __startProg(self):
-        # 这个函数要把self.program文件打开并初始话相关的数据
         if os.path.isfile(self.program):
             self.video_capture = cv2.VideoCapture(self.program)
             if self.video_capture:
@@ -317,15 +320,15 @@ class Ui_TruckAnalytics(object):
                 self.Slider.setRange(0, self.total_frames - 1)
                 self.current_frame = 0
                 self.Slider.setValue(0)
-                return True  # 跳到正常播放
+                return True  # play normally
             else:
                 if self.debug:
                     print(self.program, " open fail!")
-                return False  # 文件无法读取
+                return False  # file can't read
         else:
             if self.debug:
                 print(self.program, " is not exist!")
-            return False  # 文件不存在
+            return False  # file not exist
 
     def __flashFrame(self, frame):
         # Convert the frame to RGB format
@@ -355,14 +358,13 @@ class Ui_TruckAnalytics(object):
         if self.playState == 0:
             self.video_capture = None
             self.current_frame = 0
-            # 此处可以增加一个轻量显示窗口的操作否则可能会显示最后一帧图
             return
         elif self.playState == 1:
             if self.video_capture:
                 # playState ==1 and self.video_capture !=None
                 self.program = self.program.strip().lower()
                 self.currentProg = self.currentProg.strip().lower()
-                if self.currentProg not in self.program:  # 当前播放的文件不是将要播放的文件
+                if self.currentProg not in self.program: 
                     if self.__startProg() == False:
                         self.playState = 0
                         return
@@ -377,13 +379,12 @@ class Ui_TruckAnalytics(object):
             elif self.lastFrame is not None:
                 self.__flashFrame(self.lastFrame)
                 return
-        else:  # 其他不确定状态，重置到0
+        else: 
             if self.debug:
-                print("#其他不确定状态，重置到0")
+                print("unsure state. reset to 0")
             self.playState = 0
             return
-
-        #################正常播放################
+        #####Normal########
         if self.debug:
             if self.debug % 30 == 0:
                 print(f"playing......{self.currentProg} ")
@@ -439,8 +440,9 @@ class Ui_TruckAnalytics(object):
         show_SV = self.sv.isChecked()
         NewRowcount = self.tableW.rowCount()
 
+        col_count = self.HeaderLable.index("class")
         for row in range(self.tableW.rowCount()):
-            category = self.data[row][0].lower()
+            category = self.data[row][col_count].lower()
             if (
                 (category == "lt" and not show_LT)
                 or (category == "trcont" and not show_Trcont)
@@ -482,7 +484,9 @@ class Ui_TruckAnalytics(object):
     def SortbyConfi(self):
         # sort self.data by Confidence // second col of data
         try:
-            self.data.sort(key=lambda x: float(x[1]), reverse=True)
+            col_num = self.HeaderLable.index("confidence")
+            print(self.data)
+            self.data.sort(key=lambda x: float(x[col_num]), reverse=True)
             self.load_data_to_table()
         except AttributeError as err:
             print("Can't sort when here is no data!")
@@ -490,10 +494,8 @@ class Ui_TruckAnalytics(object):
     def SortbyTime(self):
         # sort self.data by time // third col of data
         try:
-            self.data.sort(
-                key=lambda x: datetime.datetime.strptime(x[2], "%H:%M:%S").time(),
-                reverse=True,
-            )
+            col_num = self.HeaderLable.index("initial_frame_index")
+            self.data.sort(key=lambda x: float(x[col_num]))
             self.load_data_to_table()
         except AttributeError as err:
             print("Can't sort when here is no data!")
@@ -514,28 +516,27 @@ class Ui_TruckAnalytics(object):
 
     def UpdateCsv(self):
         # this function is use for update csv after the data been changed from the interface.
-        file_name = os.path.basename(self.filepath2)
-        if file_name:
-            try:
-                # row = self.tableW.currentRow()
-                # col = self.tableW.currentColumn()
-                # message = self.tableW.item(row, col).text()
-                # here re-read every row from the table and write them into the csv file.
-                with open(file_name, "w", newline="") as file:
-                    writer = csv.writer(file)
-                    for row in range(self.tableW.rowCount()):
-                        row_data = []
-                        for col in range(self.tableW.columnCount()):
-                            item = self.tableW.item(row, col)
-                            if item is not None:
-                                row_data.append(item.text())
-                            else:
-                                row_data.append("")
-                        writer.writerow(row_data)
+        try:
+            # row = self.tableW.currentRow()
+            # col = self.tableW.currentColumn()
+            # message = self.tableW.item(row, col).text()
+            # here re-read every row from the table and write them into the csv file.
+            with open(self.filepath2, "w", newline="") as file:
+                writer = csv.writer(file)
+                writer.writerow(self.HeaderLable)
+                for row in range(self.tableW.rowCount()):
+                    row_data = []
+                    for col in range(self.tableW.columnCount()):
+                        item = self.tableW.item(row, col)
+                        if item is not None:
+                            row_data.append(item.text())
+                        else:
+                            row_data.append("")
+                    writer.writerow(row_data)
 
-                print("CSV file updated successfully.")
-            except Exception as e:
-                print("Error:", e)
+            print("CSV file updated successfully.")
+        except Exception as e:
+            print("Error:", e)
 
     def deleteRow(self):
         # delete the selected row.
@@ -545,22 +546,16 @@ class Ui_TruckAnalytics(object):
     def csv_video_connect(self):
         # change the position of the video player base of frame count from the csv file
         row = self.tableW.currentRow()
-        col = 4  # col number = frame count col number; Change this to let it work.
-        message = self.tableW.item(
-            row, col
-        ).text()  # Message is the frame count from the csv.
-        print(
-            "There is a box being select, selected box is at %d, %d. Message is %s"
-            % (row, col, message)
-        )
+        col_num = self.HeaderLable.index("initial_frame_index")
+        message = self.tableW.item(row, col_num).text()  # Message is the frame count from the csv.
 
         self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, int(message))
         ret, frame = self.video_capture.read()
         if ret:
-            # update frame
-
-            cv2.imshow("Frame", frame)
-
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)     # Convert frame to RGB format
+            image = QImage(frame_rgb.data, frame_rgb.shape[1], frame_rgb.shape[0], QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(image)
+            self.videoplayer.setPixmap(pixmap)  
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
@@ -569,3 +564,4 @@ if __name__ == "__main__":
     ui.setupUi(TruckAnalytics)
     TruckAnalytics.show()
     sys.exit(app.exec_())
+
