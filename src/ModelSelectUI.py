@@ -75,10 +75,21 @@ class Ui_MainWindow(object):
         self.verticalLayout_2.addWidget(self.sv)
 
         self.choosed_model = QtWidgets.QLabel(self.centralwidget)
-        self.choosed_model.setGeometry(QtCore.QRect(30, 60, 641, 41))
+        self.choosed_model.setGeometry(QtCore.QRect(20, 40, 521, 39))
+
+        self.BudgetLayoutWidget = QtWidgets.QWidget(self.centralwidget)
+        self.BudgetLayoutWidget.setGeometry(QtCore.QRect(590, 100, 250, 31))
+        self.BudgetLayout = QtWidgets.QHBoxLayout(self.BudgetLayoutWidget)
+        self.BudgetLayout.setContentsMargins(0, 0, 0, 0)
+        self.Image_Bud = QtWidgets.QLabel("Image Budget:", self.centralwidget)
+        self.BudgetLayout.addWidget(self.Image_Bud)
+        self.Bud_data = QtWidgets.QSpinBox(self.centralwidget)
+        self.Bud_data.setMaximum(1000)
+        self.BudgetLayout.addWidget(self.Bud_data)
+
 
         self.horizontalLayoutWidget = QtWidgets.QWidget(self.centralwidget)
-        self.horizontalLayoutWidget.setGeometry(QtCore.QRect(30, 20, 641, 41))
+        self.horizontalLayoutWidget.setGeometry(QtCore.QRect(20, 90, 551, 41))
         self.horizontalLayout = QtWidgets.QHBoxLayout(self.horizontalLayoutWidget)
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
         self.label = QtWidgets.QLabel("Sort_by: ",self.horizontalLayoutWidget)
@@ -174,10 +185,14 @@ class Ui_MainWindow(object):
     def IsActiveLearn(self):
         # Check if the actice_learn is checked or not.
         if not self.active_learn.isChecked():
+            self.Bud_data.hide()
+            self.Image_Bud.hide()
             for i in self.checkBoxes: 
                 i.hide()
                 i.setChecked(False)
         else: 
+            self.Bud_data.show()
+            self.Image_Bud.show()
             for i in self.checkBoxes: 
                 i.setChecked(True)
                 i.show()
@@ -216,8 +231,11 @@ class Ui_MainWindow(object):
         # return Result_list
         final_Result= {"model": self.message}
         final_Result["active_learn"] = self.active_learn.isChecked()
+        final_Result["image_budget"] = self.Bud_data.value()
+        Class_info = {}
         for item in self.checkBoxes:
-            final_Result[item.text().lower()] = item.isChecked()
+            Class_info[item.text().lower()] = item.isChecked()
+        final_Result["classes"] = Class_info
         self.mydic = final_Result
         return final_Result
 
@@ -234,10 +252,3 @@ def showModelSel():
     return ui.mydic
 
 if __name__ == "__main__":
-    import sys
-    app = QtWidgets.QApplication(sys.argv)
-    Dialog = QtWidgets.QDialog()
-    ui = Ui_MainWindow()
-    ui.setupUi(Dialog)
-    Dialog.show()
-    sys.exit(app.exec_())
