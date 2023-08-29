@@ -6,12 +6,13 @@ import cv2 as cv
 import easyocr
 import numpy as np
 
+from norfair import Detection
 from scipy.spatial import KDTree
 from webcolors import (
     CSS3_HEX_TO_NAMES,
     hex_to_rgb,
 )
-from src.utils.geometry import Rect
+from src.utils.geometry import Rect, points_to_rect
 
 
 def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
@@ -94,6 +95,35 @@ def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
             return datetime_str
 
     return None
+
+
+# helper function for slicing single object images out of detection objects
+def extract_objects(detections: List[Detection]) -> List[np.ndarray]:
+    """helper for extracting single object images from bounding boxes
+
+    Arguments
+    ---------
+    detections (List[Detection]):
+        the list of norfair detection objects holding the necessary information
+
+    Returns
+    -------
+    List[np.ndarray]:
+        the list of single object images, in the same order that the detection
+        objects were in
+    """
+    img_list = []
+    for det in detections:
+        # slice out single object from image, making sure to clip coords
+        # outside of the image boundaries
+        img = det.data.get("img")
+        bbox = points_to_rect(det.points).to_int()
+        bbox.clip(img.shape[1], img.shape[0])
+        x1, y1 = bbox.top_left.as_tuple()
+        x2, y2 = bbox.bottom_right.as_tuple()
+        img_slice = img[y1:y2, x1:x2]
+        img_list.append(img_slice)
+    return img_list
 
 
 def get_color_from_RGB(rgb_tuple: Tuple[int, int, int]) -> str:

@@ -47,9 +47,6 @@ class VideoHandler:
                 break
             yield frame
 
-        # cleanup
-        self.cleanup()
-
     @property
     def fps(self) -> float:
         return self._fps
@@ -123,14 +120,6 @@ class VideoHandler:
             )
 
         self._video_writer.write(frame)
-
-    # def write_frame_to_image(self, frame: np.ndarray, ext: str = "jpeg"):
-    #     """writes a frame to an image file"""
-    #     if ext not in ["png", "jpeg"]:
-    #         warnings.warn("invalid file extension, writing as jpeg")
-    #         ext = "jpeg"
-
-    #     # TODO: Implement this functionality
 
     def get_output_path(self) -> Path | None:
         if self._output_dir:

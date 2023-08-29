@@ -7,6 +7,7 @@ import cv2 as cv
 import numpy as np
 
 from shapely.geometry import Polygon
+from ultralytics.utils.ops import xyxy2xywhn
 
 
 def points_to_rect(points: np.ndarray) -> Rect:
@@ -52,11 +53,11 @@ class Rect:
             x=int(self.x), y=int(self.y), width=int(self.width), height=int(self.height)
         )
 
-    def clip(self, w: int, h: int):
+    def clip(self, img_w: int, img_h: int):
         """clips coordinates to ensure they are within a specific image shape"""
         bbox = self.to_numpy()
-        bbox[[0, 2]] = bbox[[0, 2]].clip(0, w)
-        bbox[[1, 3]] = bbox[[1, 3]].clip(0, h)
+        bbox[[0, 2]] = bbox[[0, 2]].clip(0, img_w)
+        bbox[[1, 3]] = bbox[[1, 3]].clip(0, img_h)
 
         self.x = bbox[0]
         self.y = bbox[1]
@@ -66,6 +67,27 @@ class Rect:
     def to_numpy(self) -> np.ndarray:
         """convert Rect to a 1D numpy array of form [x1 y1 x2 y2]"""
         return np.array([self.x, self.y, self.x + self.width, self.y + self.height])
+
+    def to_yolo(self, img_w, img_h) -> Tuple[float, float, float, float]:
+        """returns the rectangle information in the yolov8.txt format (i.e.
+        [x y width height] where they are normalized with respect to the image)"""
+
+        center_x = (self.x + (self.x + self.width)) / 2
+        center_y = (self.y + (self.y + self.height)) / 2
+
+        normalized_center_x = center_x / img_w
+        normalized_center_y = center_y / img_h
+        normalized_bbox_width = self.width / img_w
+        normalized_bbox_height = self.height / img_h
+
+        yolo_format = (
+            normalized_center_x,
+            normalized_center_y,
+            normalized_bbox_width,
+            normalized_bbox_height,
+        )
+
+        return yolo_format
 
     @property
     def top_left(self) -> Point:

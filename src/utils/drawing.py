@@ -164,8 +164,7 @@ def draw_rect(
         text_background_tl = (top_left[0], top_left[1] - text_size[1] - 5)
         text_background_br = (top_left[0] + text_size[0], top_left[1] - 5)
 
-        cv.rectangle(img, text_background_tl, text_background_br, color, -1)
-
+        cv.rectangle(img, text_background_tl, text_background_br, (255, 255, 255), -1)
         cv.putText(
             img,
             text,

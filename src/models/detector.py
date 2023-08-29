@@ -2,7 +2,7 @@
 
 NOTE: each detector must return a list of norfair detection objects. Those
 detection objects should be instantiated with a data dictionary in the form
-data = {"class": <int>, "conf": <float>}
+data = {"img": <np.ndarray>, "class": <int>, "conf": <float>}
 """
 
 

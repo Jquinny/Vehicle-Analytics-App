@@ -1,14 +1,13 @@
-from dataclasses import dataclass
 from typing import List, Dict, Tuple, Any
 import datetime
 
 import numpy as np
 
-import cv2 as cv
 from norfair import Detection
 
-from src.utils.geometry import points_to_rect, Point, Rect
+from src.utils.geometry import Point
 from src.models.base_model import BaseModel
+from src.utils.image import extract_objects
 
 
 class CumulativeAverage:
@@ -34,19 +33,6 @@ class CumulativeAverage:
         return "average: " + str(self.average)
 
 
-# @dataclass
-# class VehicleDetection:
-#     """class responsible for holding image and class related info for detections
-#     of a vehicle instance
-#     """
-
-#     img: np.ndarray
-#     bbox: Rect
-#     cls: int
-#     conf: float
-#     frame_idx: int
-
-
 class VehicleInstance:
     """class responsible for holding a vehicles state throughout its lifespan"""
 
@@ -56,6 +42,7 @@ class VehicleInstance:
         elapsed_time: int,
         initial_frame_index: int,
         detector_class_map: Dict[int, str],
+        classifier: BaseModel = None,
     ):
         """Initialises the state for a vehicle"""
 
@@ -80,12 +67,12 @@ class VehicleInstance:
             CumulativeAverage() for _ in range(len(detector_class_map))
         ]
 
-        self._class: str | None = None
+        self._class: int | None = None
         self._class_conf: float | None = None
 
-    def get_class_info(self) -> Tuple[str, float] | Tuple[None, None]:
+    def get_class_info(self) -> Tuple[int, float] | Tuple[None, None]:
         """returns the class estimate and confidence for the estimate in the form
-        Tuple[str, float] if .classify() has been called, otherwise returns None, None
+        Tuple[int, float] if .classify() has been called, otherwise returns None, None
         """
         return self._class, self._class_conf
 
@@ -99,7 +86,7 @@ class VehicleInstance:
         """returns the uniformly distributed detections associated with this vehicle"""
         return self._detections
 
-    def get_data(self) -> Dict[str, Any]:
+    def get_data(self, cls_map: Dict[int, str]) -> Dict[str, Any]:
         """returns this vehicle instance's data dictionary
 
         Returns
@@ -113,7 +100,7 @@ class VehicleInstance:
             "video_timestamp": self._video_timestamp,
             "initial_frame": self._initial_frame_index,
             "total_frames": self._num_of_frames,
-            "class": self._class,
+            "class": cls_map.get(self._class),
             "confidence": round(self._class_conf, 2),
             "entry_direction": self._entry_direction,
             "exit_direction": self._exit_direction,
@@ -141,7 +128,7 @@ class VehicleInstance:
             cls_num = np.argmax(list(map(float, self._detector_class_conf_bins)))
             conf = float(self._detector_class_conf_bins[cls_num])
 
-            self._class = self._detector_class_map[cls_num]
+            self._class = cls_num
             self._class_conf = conf
         else:
             # two-stage, so run classifier in ensemble-like fashion on stored frames
@@ -152,26 +139,19 @@ class VehicleInstance:
             for idx, det in enumerate(self._detections):
                 # slice out single object from image, making sure to clip coords
                 # outside of the image boundaries
-                bbox = points_to_rect(det.points).to_int()
-                img = det.data.get("img")
-                bbox.clip(img.shape[1], img.shape[0])
-                x1, y1 = bbox.top_left.as_tuple()
-                x2, y2 = bbox.bottom_right.as_tuple()
-
-                img_slice = img[y1:y2, x1:x2]
-                result = classifier.inference(img_slice)
+                img_slice = extract_objects([det])[0]
+                result = classifier.inference(img_slice, verbose=False)
                 class_bins[idx, :] = result
 
                 # update the class stored in the detections in case active
                 # learning is toggled
                 det.data["class"] = np.argmax(result)
 
-            classifier_class_map = classifier.get_classes()
             cls_estimates = np.mean(class_bins, axis=0)
             cls_num = np.argmax(cls_estimates)
             conf = cls_estimates[cls_num]
 
-            self._class = classifier_class_map.get(cls_num)
+            self._class = cls_num
             self._class_conf = conf
 
     def compute_directions(
@@ -295,17 +275,6 @@ class VehicleInstance:
         """updates the detections stored for this vehicle. Should be relatively
         uniformly distributed across its lifespan (according to norfair library)
         """
-        # updated_dets = []
-        # for det in detections:
-        #     updated_dets.append(
-        #         VehicleDetection(
-        #             img=det.data.get("img"),
-        #             bbox=points_to_rect(det.points),
-        #             cls=det.data.get("class"),
-        #             conf=det.data.get("conf"),
-        #             frame_idx=det.data.get("frame_idx"),
-        #         )
-        #     )
         # Just overwriting for now, may change in the future
         self._detections = detections
 
