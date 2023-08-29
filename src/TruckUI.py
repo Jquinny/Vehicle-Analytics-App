@@ -1,12 +1,5 @@
-# more TODO:
-# Import video inside pyqt by frame                             check
-# sort csv file by enter time/confi, filter csv by checkbox     check
-# add option for user to choose model type / model weight.    check
-# time changes when drag the video progres bar.                check
-# Export button to renew csv file will edit inside the pyqt app.        check
-# add button aloud user to take screenshot for the keyframe of the video.     check
-# aloud user get a uoi to start data processing.                          
-#
+# This code is use for TruckAnalysis Interface
+# This is code for the main UI page. alowed user to gether useful infomation from the training result.
 # -*- coding: utf-8 -*-
 
 # Form implementation generated from reading ui file 'truckana.ui'
@@ -56,6 +49,11 @@ class Ui_TruckAnalytics(object):
         self.timeEdit = QtWidgets.QLabel("Time: 00:00:00", self.centralwidget)
         self.timeEdit.setGeometry(QtCore.QRect(440, 460, 118, 22))
 
+        # Set up for processTable
+        self.ProcessTable = QtWidgets.QTableWidget(self.centralwidget)
+        self.ProcessTable.setGeometry(QtCore.QRect(20, 550, 451, 121))
+
+        # Set up for tableW
         self.tableW = QtWidgets.QTableWidget(self.centralwidget)
         self.tableW.setGeometry(QtCore.QRect(590, 50, 501, 681))
         self.tableW.setColumnCount(20)
@@ -182,7 +180,7 @@ class Ui_TruckAnalytics(object):
         self.explore = QtWidgets.QPushButton("Explore", self.ProExplLayoutWidget)
         self.Pro_Exp_layout.addWidget(self.explore)
         self.explore.clicked.connect(self.load_data)
-        
+
         # Below are setup for menueBar
         TruckAnalytics.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(TruckAnalytics)
@@ -268,9 +266,19 @@ class Ui_TruckAnalytics(object):
         # 1) select a new mp4 video
         # 2）jump to model selection page and do selection.
         filepath1, _ = QFileDialog.getOpenFileName(None)  # filepath1 is the selected MP4 video path
-        from ModelSelectUI import showModelSel
-        modelJson = showModelSel()
-        print(modelJson)
+        if filepath1.endswith('.mp4'):
+            from ModelSelectUI import showModelSel
+            modelJson = showModelSel()
+            print(modelJson)
+
+            ####################
+            testList = ["sf","sdfs","sfsd","dsfs"]
+            ##################
+
+            self.display_processTabW(testList)
+
+        else:
+            raise Exception("Wrong input datatype.")
            
     def load_data(self):
         # upload correct type of document
@@ -557,6 +565,24 @@ class Ui_TruckAnalytics(object):
             pixmap = QPixmap.fromImage(image)
             self.videoplayer.setPixmap(pixmap)  
 
+    def display_processTabW(self,testlist):
+        # this is use to display processtableWidget.
+        self.ProcessTable.setRowCount(len(testlist))
+        self.ProcessTable.setColumnCount(2)
+        for row, item in enumerate(testlist):
+            button = QtWidgets.QPushButton("KILL")
+            button.clicked.connect(lambda checked, r=row: self.Kill_process(r))
+            self.ProcessTable.setCellWidget(row, 1, button)
+            self.ProcessTable.setColumnWidth(0, 300)
+
+            item = QTableWidgetItem(item)
+            self.ProcessTable.setItem(row, 0, item)
+            self.ProcessTable.setColumnWidth(1, 100)
+
+    def Kill_process(self,row):
+        print("Button clicked with index:", row)
+        return row
+
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     TruckAnalytics = QtWidgets.QMainWindow()
@@ -564,4 +590,3 @@ if __name__ == "__main__":
     ui.setupUi(TruckAnalytics)
     TruckAnalytics.show()
     sys.exit(app.exec_())
-
