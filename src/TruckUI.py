@@ -183,6 +183,11 @@ class Ui_TruckAnalytics(object):
         self.Pro_Exp_layout.addWidget(self.explore)
         self.explore.clicked.connect(self.load_data)
 
+        self.mcelhanney = QtWidgets.QLabel(self.centralwidget)
+        self.mcelhanney.setGeometry(QtCore.QRect(20, 680, 161, 41))
+        self.mcelhanney.setPixmap(QPixmap("mcelhanney.jpg"))
+        self.mcelhanney.setScaledContents(True)
+        
         # Below are setup for menueBar
         TruckAnalytics.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(TruckAnalytics)
