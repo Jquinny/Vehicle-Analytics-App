@@ -200,7 +200,7 @@ class Ui_MainWindow(object):
     def SortbySpeed(self):
         # sort data by its speed
         try:
-            print("Sort by Speed trigered.")
+            #print("Sort by Speed trigered.")
             col_num = self.modelHeader.index("inf speed (ms)")
             self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse=True)
             self.show_Modellist()
@@ -210,7 +210,7 @@ class Ui_MainWindow(object):
     def SortbyClassCount(self):
         # sort data by it class count
         try:
-            print("Sort by class count trigered.")
+            #print("Sort by class count trigered.")
             col_num = self.modelHeader.index("num of classes")
             self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse=True)
             self.show_Modellist()
@@ -220,7 +220,7 @@ class Ui_MainWindow(object):
     def Sortbymap50(self):
         # sort data by it confidence.
         try:
-            print("Sort by confi trigered.")
+            #print("Sort by confi trigered.")
             col_num = self.modelHeader.index("mAP50")
             self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse = True)
             self.show_Modellist()
