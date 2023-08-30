@@ -571,7 +571,7 @@ class Ui_TruckAnalytics(object):
         # sort self.data by Confidence // second col of data
         try:
             col_num = self.HeaderLable.index("confidence")
-            print(self.data)
+            # print(self.data)
             self.data.sort(key=lambda x: float(x[col_num]), reverse=True)
             self.load_data_to_table()
         except AttributeError as err:
@@ -580,8 +580,8 @@ class Ui_TruckAnalytics(object):
     def SortbyTime(self):
         # sort self.data by time // third col of data
         try:
-            col_num = self.HeaderLable.index("initial_frame_index")
-            self.data.sort(key=lambda x: float(x[col_num]))
+            col_num = self.HeaderLable.index("initial_frame")
+            self.data.sort(key=lambda x: int(x[col_num]))
             self.load_data_to_table()
         except AttributeError as err:
             print("Can't sort when here is no data!")
