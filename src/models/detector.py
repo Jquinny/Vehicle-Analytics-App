@@ -2,7 +2,7 @@
 
 NOTE: each detector must return a list of norfair detection objects. Those
 detection objects should be instantiated with a data dictionary in the form
-data = {"img": <np.ndarray>, "class": <int>, "conf": <float>}
+data = {"class": <int>, "conf": <float>}
 """
 
 
@@ -59,14 +59,13 @@ class YOLOv8Detector(BaseModel):
             # no inference params specified, using defaults
             results = self.model.predict(img)
 
-        return self._to_norfair(img, results)
+        return self._to_norfair(results)
 
     def get_classes(self) -> Dict[int, str | None]:
         return self.classes
 
     def _to_norfair(
         self,
-        img: np.ndarray,
         yolo_detections: torch.tensor,
     ) -> List[Detection]:
         """convert detections_as_xywh to norfair detections"""
@@ -84,7 +83,7 @@ class YOLOv8Detector(BaseModel):
                 ]
             )
             norfair_detections.append(
-                Detection(points=bbox, data={"img": img, "class": cls, "conf": score})
+                Detection(points=bbox, data={"class": cls, "conf": score})
             )
 
         return norfair_detections
@@ -127,7 +126,6 @@ class RTDETRDetector(BaseModel):
 
     def _to_norfair(
         self,
-        img: np.ndarray,
         rtdetr_detections: torch.tensor,
     ) -> List[Detection]:
         """convert detections_as_xywh to norfair detections"""
@@ -145,7 +143,7 @@ class RTDETRDetector(BaseModel):
                 ]
             )
             norfair_detections.append(
-                Detection(points=bbox, data={"img": img, "class": cls, "conf": score})
+                Detection(points=bbox, data={"class": cls, "conf": score})
             )
 
         return norfair_detections
