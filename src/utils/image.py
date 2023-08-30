@@ -13,6 +13,7 @@ from webcolors import (
     hex_to_rgb,
 )
 from src.utils.geometry import Rect, points_to_rect
+from src.utils.video import VideoHandler
 
 
 def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
@@ -98,13 +99,18 @@ def parse_timestamp(img: np.ndarray, reader: easyocr.Reader) -> str | None:
 
 
 # helper function for slicing single object images out of detection objects
-def extract_objects(detections: List[Detection]) -> List[np.ndarray]:
+def extract_objects(detections: List[Detection], img: np.ndarray) -> List[np.ndarray]:
     """helper for extracting single object images from bounding boxes
+
+    NOTE: the detections should all be for the same image
 
     Arguments
     ---------
     detections (List[Detection]):
-        the list of norfair detection objects holding the necessary information
+        the list of norfair detection objects holding the necessary bbox and
+        frame info
+    img (np.ndarray):
+        the image that the objects should be extracted from
 
     Returns
     -------
@@ -116,7 +122,6 @@ def extract_objects(detections: List[Detection]) -> List[np.ndarray]:
     for det in detections:
         # slice out single object from image, making sure to clip coords
         # outside of the image boundaries
-        img = det.data.get("img")
         bbox = points_to_rect(det.points).to_int()
         bbox.clip(img.shape[1], img.shape[0])
         x1, y1 = bbox.top_left.as_tuple()

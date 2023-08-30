@@ -14,6 +14,7 @@ from norfair import Detection
 from sentence_transformers import util, SentenceTransformer
 from src.utils.image import extract_objects
 from src.utils.geometry import points_to_rect
+from src.utils.video import VideoHandler
 
 
 def write_yolo_annotation_files(
@@ -304,6 +305,7 @@ def diverse_prototype(
 
 def active_learn(
     image_info: Dict[int, Dict[str, Any]],
+    video_handler: VideoHandler,
     all_classes: List[int],
     minority_classes: List[int],
     budget: int,
@@ -340,6 +342,9 @@ def active_learn(
     ---------
     image_info (Dict[int, Dict[str, Any]]):
         dictionary containing a mapping of frame index to image information
+    video_handler (VideoHandler):
+        video handler object used for getting frames required for single object
+        image slicing
     all_classes (List[int]):
         the list of all the classes that could have been detected
     minority_classes (List[int]):
@@ -370,7 +375,9 @@ def active_learn(
         detections = info.get("detections")
         classes = np.array([det.data.get("class") for det in detections])
         confidences = np.array([det.data.get("conf") for det in detections])
-        single_object_imgs = extract_objects(detections)
+
+        img = video_handler.get_frame(frame_idx)
+        single_object_imgs = extract_objects(detections, img)
 
         embeddings = model.encode(
             [Image.fromarray(img) for img in single_object_imgs],
@@ -378,11 +385,6 @@ def active_learn(
             convert_to_numpy=True,
             show_progress_bar=False,
         )
-
-        # delete all stored images inside of the detection objects (save memory)
-        for det in detections:
-            if det.data.get("img") is not None:
-                del det.data["img"]
 
         img_entropy = ENMS(
             classes, confidences, embeddings, similarity_thresh=similarity_thresh

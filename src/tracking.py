@@ -8,6 +8,7 @@ from norfair import Detection
 from src.utils.geometry import Point
 from src.models.base_model import BaseModel
 from src.utils.image import extract_objects
+from src.utils.video import VideoHandler
 
 
 class CumulativeAverage:
@@ -41,7 +42,7 @@ class VehicleInstance:
         initial_dt: datetime.datetime,
         elapsed_time: int,
         initial_frame_index: int,
-        detector_class_map: Dict[int, str],
+        cls_map: Dict[int, str],
     ):
         """Initialises the state for a vehicle"""
 
@@ -59,12 +60,8 @@ class VehicleInstance:
         self._entry_direction: str | None = None
         self._exit_direction: str | None = None
 
-        self._detections: List[Detection] = []
-
-        self._detector_class_map = detector_class_map
-        self._detector_class_conf_bins = [
-            CumulativeAverage() for _ in range(len(detector_class_map))
-        ]
+        self._class_map = cls_map
+        self._class_conf_bins = [CumulativeAverage() for _ in range(len(cls_map))]
 
         self._class: int | None = None
         self._class_conf: float | None = None
@@ -81,11 +78,7 @@ class VehicleInstance:
         """
         return self._entry_direction, self._exit_direction
 
-    def get_detections(self) -> List[Detection]:
-        """returns the uniformly distributed detections associated with this vehicle"""
-        return self._detections
-
-    def get_data(self, cls_map: Dict[int, str]) -> Dict[str, Any]:
+    def get_data(self) -> Dict[str, Any]:
         """returns this vehicle instance's data dictionary
 
         Returns
@@ -99,7 +92,7 @@ class VehicleInstance:
             "video_timestamp": self._video_timestamp,
             "initial_frame": self._initial_frame_index,
             "total_frames": self._num_of_frames,
-            "class": cls_map.get(self._class),
+            "class": self._class_map.get(self._class),
             "confidence": round(self._class_conf, 2),
             "entry_direction": self._entry_direction,
             "exit_direction": self._exit_direction,
@@ -107,52 +100,22 @@ class VehicleInstance:
 
         return data
 
-    def classify(self, classifier: BaseModel | None = None):
+    def classify(self):
         """compute the class estimate and confidence for this vehicle instance
 
-        If no classifier is specified, the estimate is based on the argmax
-        of the averages of all class probabilities given for the vehicle so far.
-
-        If a classifier is specified, then the detector estimates are ignored,
-        and an ensemble-like algorithm is employed using soft-voting on the
-        average probability estimates per class over a specific number of frames
-        from this vehicles lifespan.
+        the estimate is based on the argmax of the averages of all class
+        probabilities given for the vehicle so far.
 
         NOTE: the class and class confidence attributes are set after calling
         this function so that if .get_data() is called afterwards they will be
         included
         """
-        if classifier is None:
-            # single stage, just get max estimate
-            cls_num = np.argmax(list(map(float, self._detector_class_conf_bins)))
-            conf = float(self._detector_class_conf_bins[cls_num])
+        # just get max average estimate
+        cls_num = np.argmax(list(map(float, self._class_conf_bins)))
+        conf = float(self._class_conf_bins[cls_num])
 
-            self._class = cls_num
-            self._class_conf = conf
-        else:
-            # two-stage, so run classifier in ensemble-like fashion on stored frames
-            class_bins = np.zeros(
-                (len(self._detections), len(classifier.get_classes()))
-            )
-
-            for idx, det in enumerate(self._detections):
-                # slice out single object from image, making sure to clip coords
-                # outside of the image boundaries
-                img_slice = extract_objects([det])[0]
-                result = classifier.inference(img_slice, verbose=False)
-                class_bins[idx, :] = result
-
-            cls_estimates = np.mean(class_bins, axis=0)
-            cls_num = np.argmax(cls_estimates)
-            conf = cls_estimates[cls_num]
-
-            self._class = cls_num
-            self._class_conf = conf
-
-        # update the class stored in the detections in case active
-        # learning is toggled
-        for det in self._detections:
-            det.data["class"] = self._class
+        self._class = cls_num
+        self._class_conf = conf
 
     def compute_directions(
         self,
@@ -269,14 +232,8 @@ class VehicleInstance:
 
     def update_class_estimate(self, class_num: int, class_conf: float):
         """updates the class estimate and confidence bins based on model inference"""
-        self._detector_class_conf_bins[class_num].update(class_conf)
-
-    def update_detections(self, detections: List[Detection]):
-        """updates the detections stored for this vehicle. Should be relatively
-        uniformly distributed across its lifespan (according to norfair library)
-        """
-        # Just overwriting for now, may change in the future
-        self._detections = detections
+        if class_num < len(self._class_conf_bins):
+            self._class_conf_bins[class_num].update(class_conf)
 
     def increment_frame_count(self):
         """increments the number of frames this vehicle has been alive for"""

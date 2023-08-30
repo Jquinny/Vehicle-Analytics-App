@@ -18,7 +18,7 @@ from norfair.drawing import Palette
 
 from config import ROOT_DIR, VEHICLE_DATA_COLUMNS
 from src.active_learning import active_learn, write_yolo_annotation_files
-from src.tracking import VehicleInstance, CumulativeAverage
+from src.tracking import VehicleInstance
 from src.models.base_model import BaseModel
 from src.utils.user_input import get_roi, get_coordinates, check_existing_user_input
 from src.utils.drawing import (
@@ -29,7 +29,7 @@ from src.utils.drawing import (
     draw_zones,
 )
 from src.utils.geometry import points_to_rect, Point, Poly
-from src.utils.image import parse_timestamp
+from src.utils.image import parse_timestamp, extract_objects
 from src.utils.video import VideoHandler
 from src.model_registry import ModelRegistry
 
@@ -38,7 +38,7 @@ INITIALIZATION_DELAY: int = 5
 HIT_COUNTER_MAX: int = 15
 DISTANCE_FUNCTION: str = "iou"
 DISTANCE_THRESHOLD_BBOX: float = 0.5
-PAST_DETECTIONS_LENGTH: int = 5
+PAST_DETECTIONS_LENGTH: int = 1
 
 # detection constants
 CONF_THRESHOLD = 0.30
@@ -192,6 +192,7 @@ def process(
 
     cls_map = detector.get_classes() if classifier is None else classifier.get_classes()
 
+    # -------------------- active learning setup -------------------------- #
     if active_learn and active_learning_classes:
         # map the active learning classes to their numerical form
         reverse_cls_map = {name: num for num, name in cls_map.items()}
@@ -201,6 +202,14 @@ def process(
             if name in reverse_cls_map.keys()
         ]
 
+    # for storing active learning frames and their corresponding detections
+    active_learning_frames: defaultdict[int, Dict[str, Any]] = defaultdict(lambda: {})
+
+    # sampling rates for grabbing candidate images
+    sampling_rate = video_handler.fps
+    sample_tracker = 0
+
+    # ----------------- tracking setup ------------------------------------- #
     distance_function = "iou"
     distance_threshold = DISTANCE_THRESHOLD_BBOX
 
@@ -218,11 +227,6 @@ def process(
     # for storing csv row results
     results: Dict[int, Dict[str, Any]] = dict()
 
-    # for storing active learning frames and their corresponding detections
-    active_learning_frames: defaultdict[int, Dict[str, Any]] = defaultdict(
-        lambda: {"detections": []}
-    )
-
     # color map for visualizing bounding boxes and class estimates
     # NOTE: supports 20 classes for now
     Palette.set("tab20")
@@ -230,6 +234,8 @@ def process(
     print("beginning to process ...")
     try:
         for frame_idx, frame in enumerate(video_handler):
+            sample_tracker += 1
+
             # get detections from model inference
             norfair_detections = detector.inference(
                 frame,
@@ -251,10 +257,19 @@ def process(
                 # no roi means all are valid
                 valid_detections: List[Detection] = norfair_detections
 
-            if active_learning:
-                # need frame indexes stored with detections for active learning
-                for det in valid_detections:
-                    det.data["frame_idx"] = frame_idx
+            if valid_detections and two_stage:
+                # run classifier on each single object and update class estimates
+                single_obj_images = extract_objects(valid_detections, frame)
+                for idx, img in enumerate(single_obj_images):
+                    class_estimates = classifier.inference(img, verbose=False)
+                    cls_num = np.argmax(class_estimates)
+                    valid_detections[idx].data["class"] = cls_num
+                    valid_detections[idx].data["conf"] = class_estimates[cls_num]
+
+            # store frame for active learning if conditions are met
+            if valid_detections and active_learning and sample_tracker > sampling_rate:
+                active_learning_frames[frame_idx]["detections"] = valid_detections
+                sample_tracker = 0
 
             # update tracker with new valid detections
             tracked_objects: List[TrackedObject] = tracker.update(valid_detections)
@@ -268,29 +283,20 @@ def process(
                         initial_dt=initial_datetime,
                         elapsed_time=elapsed_time,
                         initial_frame_index=video_handler.current_frame,
-                        detector_class_map=detector.get_classes(),
+                        cls_map=cls_map,
                     )
                 vehicles[obj.global_id].increment_frame_count()
 
                 # hacky way to check if this obj actually got a match on this frame
                 # or if they are just still alive but with no new information to give
                 if obj.last_detection.age == obj.age:
-                    if classifier is None:
-                        # only need to update detection bins if running single stage
-                        class_num = obj.last_detection.data.get("class", None)
-                        conf = obj.last_detection.data.get("conf", None)
-                        vehicles[obj.global_id].update_class_estimate(class_num, conf)
+                    # update the class estimate bin averages
+                    class_num = obj.last_detection.data.get("class", None)
+                    conf = obj.last_detection.data.get("conf", 0)
+                    vehicles[obj.global_id].update_class_estimate(class_num, conf)
 
-                    # can use last detection to get better estimate of centroid
+                    # estimate vehicle centroid using center of bounding box
                     center = points_to_rect(obj.last_detection.points).center
-                    vehicles[obj.global_id].update_coords(center)
-
-                    # update detection frames if active learning is on or using two-stage
-                    if classifier is not None or active_learning:
-                        vehicles[obj.global_id].update_detections(obj.past_detections)
-                else:
-                    # approximate centroid of vehicle using kalman filter state
-                    center = points_to_rect(obj.estimate).center
                     vehicles[obj.global_id].update_coords(center)
 
             # purge any vehicles no longer being tracked and store data in results
@@ -303,19 +309,9 @@ def process(
                         video_handler.resolution[0] - 1,
                         video_handler.resolution[1] - 1,
                     )
-                    vehicle.classify(classifier)
+                    vehicle.classify()
 
-                    # add frames for active learning computation if this vehicle
-                    # class was toggled by the user
-                    if (
-                        active_learning
-                        and vehicle.get_class_info()[0] in active_learning_classes
-                    ):
-                        for det in vehicle.get_detections():
-                            frame_idx = det.data.get("frame_idx")
-                            active_learning_frames[frame_idx]["detections"].append(det)
-
-                    results[global_id] = vehicle.get_data(cls_map)
+                    results[global_id] = vehicle.get_data()
                     del vehicles[global_id]
 
             # -------------- drawing output and whatnot below -------------------- #
@@ -329,7 +325,7 @@ def process(
                     draw_rect(
                         frame_copy,
                         rect=bbox,
-                        class_name=detector.get_classes().get(class_num),
+                        class_name=cls_map.get(class_num),
                         conf=conf,
                         color=Palette.choose_color(class_num),
                     )
@@ -366,8 +362,10 @@ def process(
     # only continue to diverse prototype algorithm if we actually have
     # frames to run it on
     if active_learning and active_learning_frames:
+        print("Acquiring images for active learning ...")
         image_info_dict = active_learn(
             image_info=active_learning_frames,
+            video_handler=video_handler,
             all_classes=list(cls_map.keys()),
             minority_classes=active_learning_classes,
             budget=active_learning_budget,
