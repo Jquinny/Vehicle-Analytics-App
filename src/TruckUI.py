@@ -336,6 +336,7 @@ class Ui_TruckAnalytics(object):
                 *active_learning_classes,
                 "--active-learning-budget",
                 str(active_learning_budget),
+                "--save",
             ]
             if active_learn:
                 command.append("--active-learn")
