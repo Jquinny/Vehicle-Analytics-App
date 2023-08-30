@@ -411,7 +411,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--active-learning-classes",
         type=str,
-        nargs="+",
+        nargs="*",
         help="list of classes to pull frames for active learning",
     )
     parser.add_argument(
