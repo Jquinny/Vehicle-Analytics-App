@@ -73,6 +73,7 @@ def draw_roi(img: np.ndarray, roi: Poly, close: bool = False):
 
 
 def draw_coordinates(frame: np.ndarray, coordinates: Dict[str, Point]):
+    """helper for drawing direction coordinates onto the image frame"""
     for text, pt in coordinates.items():
         center = pt.to_int().as_tuple()
         radius = 5
@@ -239,7 +240,7 @@ def draw_tracklets(
     frame = _merge_frames(tracklet_frame, frame)
 
 
-def plot_images(images, titles=None):
+def plot_images(images: List[np.ndarray], titles: List[str] | None = None):
     """helper function for plotting multiple images in a subplot."""
 
     if titles is not None:

@@ -211,6 +211,7 @@ def get_roi_points(event, x, y, flags, data: dict):
 
 
 def get_roi(frame: np.ndarray) -> Poly | None:
+    """gets the region of interest polygon from the user via openvc gui"""
     window_title = "Region of Interest Extraction"
     window_scale_x = frame.shape[1] / WINDOW_SIZE[0]
     window_scale_y = frame.shape[0] / WINDOW_SIZE[1]
@@ -284,6 +285,7 @@ def get_coordinate_points(event, x, y, flags, data: dict):
 
 
 def get_coordinates(frame: np.ndarray) -> Dict[str, Point]:
+    """gets the direction coordinates from the user via opencv gui"""
     window_title = "Direction Coordinate Placement"
     window_scale_x = frame.shape[1] / WINDOW_SIZE[0]
     window_scale_y = frame.shape[0] / WINDOW_SIZE[1]

@@ -6,7 +6,6 @@ from pathlib import Path
 import pathlib
 import json
 import argparse
-import time
 import warnings
 
 import pandas as pd
@@ -65,7 +64,7 @@ def set_posix_windows():
 
 def process(
     video_path: str,
-    model_dir: str,
+    detector_dir: str,
     two_stage: bool = False,
     active_learning: bool = False,
     active_learning_classes: List[int] | None = None,
@@ -75,14 +74,17 @@ def process(
 ) -> str:
     """Main video processing function. accumulates vehicle data and writes out
     the video with bounding boxes, class names, and confidences, as well as
-    a .json file with video metadata and a .csv file with all of the vehicle
-    information.
+    a .csv file with all of the vehicle information.
+
+    If active learning is toggled, the algorithm will select optimal frames
+    for training and compile them into the yolov8.txt dataset form so that
+    they can easily be uploaded to any annotation software.
 
     Arguments
     ---------
     video_path (str):
         absolute path to the video to be processed
-    model_dir (str):
+    detector_dir (str):
         the directory name holding the model weights and metadata to be used for
         detection
     two_stage (bool):
@@ -180,7 +182,7 @@ def process(
 
     # ------------ detection and optionally classifier model setup ----------- #
     detector_selector = ModelRegistry(DETECTOR_ROOT_DIR)
-    detector = detector_selector.generate_model(model_dir)
+    detector = detector_selector.generate_model(detector_dir)
 
     classifier = None
     if two_stage:
@@ -436,7 +438,7 @@ if __name__ == "__main__":
 
     output_dir = process(
         video_path=video_path,
-        model_dir=args.model,
+        detector_dir=args.model,
         two_stage=args.two_stage,
         active_learning=args.active_learn,
         active_learning_classes=args.active_learning_classes,

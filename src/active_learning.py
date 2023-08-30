@@ -16,17 +16,6 @@ from src.utils.image import extract_objects
 from src.utils.geometry import points_to_rect
 
 
-def write_yolo_yaml(abs_img_path: str, cls_map: Dict[int, str]):
-    yaml_info = {
-        "names": cls_map,
-    }
-    yaml_path = Path(abs_img_path).parents[1] / "data.yaml"
-    yaml_path = yaml_path.resolve()
-
-    with open(yaml_path, "w") as f:
-        yaml.dump(yaml_info, f)
-
-
 def write_yolo_annotation_files(
     detections: List[Detection],
     cls_map: Dict[int, str],
@@ -49,7 +38,14 @@ def write_yolo_annotation_files(
     cv.imwrite(abs_img_path, img)
 
     # write the yaml for class num to name mapping
-    write_yolo_yaml(abs_img_path, cls_map)
+    yaml_info = {
+        "names": cls_map,
+    }
+    yaml_path = Path(abs_img_path).parents[1] / "data.yaml"
+    yaml_path = yaml_path.resolve()
+
+    with open(yaml_path, "w") as f:
+        yaml.dump(yaml_info, f)
 
     # write annotation file
     ann_dir = Path(abs_img_path).parents[1] / "labels"
