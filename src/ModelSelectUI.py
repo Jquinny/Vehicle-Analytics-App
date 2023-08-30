@@ -216,7 +216,7 @@ class Ui_MainWindow(object):
         try:
             # print("Sort by Speed trigered.")
             col_num = self.modelHeader.index("inf speed (ms)")
-            self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse=True)
+            self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse=False)
             self.show_Modellist()
         except AttributeError as err:
             print("Can't sort when here is no data!")
