@@ -1,5 +1,5 @@
 """Main script for running the full vehicle analysis pipeline."""
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from contextlib import contextmanager
 from collections import defaultdict
 from pathlib import Path
@@ -8,6 +8,7 @@ import json
 import argparse
 import warnings
 
+import cv2 as cv
 import pandas as pd
 import numpy as np
 import torch
@@ -26,6 +27,7 @@ from src.utils.drawing import (
     draw_coordinates,
     draw_rect,
     draw_tracker_predictions,
+    draw_text,
     draw_zones,
 )
 from src.utils.geometry import points_to_rect, Point, Poly
@@ -60,6 +62,30 @@ def set_posix_windows():
         yield
     finally:
         pathlib.PosixPath = posix_backup
+
+
+def get_user_info(
+    first_frame: np.ndarray, video_path: Path
+) -> Tuple[Poly, Dict[str, Point]]:
+    # get roi from the user
+    roi = get_roi(first_frame)
+
+    # get direction coordinates from the user
+    draw_roi(first_frame, roi, close=True)
+    direction_coordinates = get_coordinates(first_frame)
+
+    # save new json holding the roi and coordinate information
+    json_file = str(video_path.parent / "user_input.json")
+    with open(json_file, "w") as f:
+        data = {
+            "roi": [pt.as_tuple() for pt in roi] if roi is not None else [],
+            "coordinates": {
+                dir: pt.as_tuple() for dir, pt in direction_coordinates.items()
+            },
+        }
+        json.dump(data, f)
+
+    return roi, direction_coordinates
 
 
 def process(
@@ -145,24 +171,23 @@ def process(
             direction_coordinates = {
                 dir: Point(*pt) for dir, pt in data.get("coordinates").items()
             }
+
+            # show stored info to user (NOTE: Hacky fix for now)
+            first_frame_copy = first_frame.copy()
+            draw_roi(first_frame_copy, roi, close=True)
+            draw_coordinates(first_frame_copy, direction_coordinates)
+            instructions = "Press Enter to Confirm, Press b to redraw"
+            draw_text(first_frame_copy, instructions, Point(x=0, y=0))
+            frame_title = "Saved Information"
+            cv.imshow(frame_title, first_frame_copy)
+            key = cv.waitKey(0)
+            cv.destroyWindow(frame_title)
+            if key == ord("b"):
+                # user wants to redo it
+                roi, direction_coordinates = get_user_info(first_frame, video_path)
     else:
-        # get roi from the user
-        roi = get_roi(first_frame)
-
-        # get direction coordinates from the user
-        draw_roi(first_frame, roi, close=True)
-        direction_coordinates = get_coordinates(first_frame)
-
-        # save new json holding the roi and coordinate information
-        json_file = str(video_path.parent / "user_input.json")
-        with open(json_file, "w") as f:
-            data = {
-                "roi": [pt.as_tuple() for pt in roi] if roi is not None else [],
-                "coordinates": {
-                    dir: pt.as_tuple() for dir, pt in direction_coordinates.items()
-                },
-            }
-            json.dump(data, f)
+        # get input from the user
+        roi, direction_coordinates = get_user_info(first_frame, video_path)
 
     # setup entry and exit zones based on user specified direction coordinates
     zone_mask: np.ndarray = None

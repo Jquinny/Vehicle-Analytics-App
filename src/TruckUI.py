@@ -388,7 +388,7 @@ class Ui_TruckAnalytics(object):
             self.Slider.sliderMoved.connect(self.set_position)
 
         else:
-            raise Exception("Sorry, Wrong type of data!")
+            warnings.warn("Sorry, Wrong type of data!")
 
     def format_time(self, time_in_seconds):
         m, s = divmod(time_in_seconds, 60)
