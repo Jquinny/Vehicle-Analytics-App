@@ -317,11 +317,14 @@ class Ui_TruckAnalytics(object):
             return None
 
         model_folder = modelJson.get("model", None)
+        classes = modelJson.get("classes", [])
         if model_folder is not None:
             # get process video arguments ready
             active_learn = modelJson.get("active_learn", False)
-            active_learning_classes = ["trreefer", "vp"]
-            active_learning_budget = 25
+            active_learning_classes = [
+                cls_name for cls_name in classes.keys() if classes[cls_name]
+            ]
+            active_learning_budget = modelJson.get("image_budget", 100)
             abs_vid_path = str(Path(video_path).resolve())
             python_path = sys.executable
             process_script = str(Path(__file__).parent / "process_video.py")

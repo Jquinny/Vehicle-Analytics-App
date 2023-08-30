@@ -260,7 +260,7 @@ def diverse_prototype(
         necessary to build up an active learned dataset
     """
     acquired_images: Dict[int, Dict[str, Any]] = {}
-    for idx, (frame_idx, image_info) in enumerate(candidate_images[:]):
+    for frame_idx, image_info in candidate_images[:]:
         if not minority_classes:
             # we have exhausted all minority quotas, fill in the rest of the budget
             # with highest entropy images remaining
@@ -280,7 +280,7 @@ def diverse_prototype(
         # passed both checks, acquire the frame and remove from sorted_images in case
         # we need to go back through the rest afterwards
         acquired_images[frame_idx] = image_info
-        candidate_images.pop(idx)
+        candidate_images.remove((frame_idx, image_info))
         for cls in minority_classes[:]:
             # update quotas
             if minority_prob_buckets[cls] > inter_thresh:
