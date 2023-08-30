@@ -1,5 +1,12 @@
-# This code is use for TruckAnalysis Interface
-# This is code for the main UI page. alowed user to gether useful infomation from the training result.
+# more TODO:
+# Import video inside pyqt by frame                             check
+# sort csv file by enter time/confi, filter csv by checkbox     check
+# add option for user to choose model type / model weight.    check
+# time changes when drag the video progres bar.                check
+# Export button to renew csv file will edit inside the pyqt app.        check
+# add button aloud user to take screenshot for the keyframe of the video.     check
+# aloud user get a uoi to start data processing.
+#
 # -*- coding: utf-8 -*-
 
 # Form implementation generated from reading ui file 'truckana.ui'
@@ -11,21 +18,37 @@
 
 
 import sys
+import subprocess
 import cv2
 import os
 import csv
 import datetime
-from PyQt5.QtWidgets import QFileDialog, QLabel, QTableWidgetItem
+import warnings
+from pathlib import Path
+from typing import List, Tuple
+from PyQt5.QtWidgets import QTableWidgetItem, QFileDialog, QLabel
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5 import QtWidgets, QtCore
 
+from src.ModelSelectUI import showModelSel
+from src.process_video import process
+from src.model_registry import ModelRegistry
+from config import ROOT_DIR
+
+
 class Ui_TruckAnalytics(object):
-    def setupUi(self, TruckAnalytics): 
+    def setupUi(self, TruckAnalytics):
         TruckAnalytics.setObjectName("TruckAnalytics")
         TruckAnalytics.resize(1242, 789)
         self.centralwidget = QtWidgets.QWidget(TruckAnalytics)
         self.centralwidget.setObjectName("centralwidget")
+
+        # state for started processes
+        self.processes: List[subprocess.Popen] = []
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.check_processes)
 
         # Setup slider
         self.Slider = QtWidgets.QSlider(self.centralwidget)
@@ -219,6 +242,22 @@ class Ui_TruckAnalytics(object):
         self.filepath2 = None
         self.HeaderLable = None
 
+    def check_processes(self):
+        finished_processes = []
+        for process in self.processes:
+            if process.poll() is not None:
+                finished_processes.append(process)
+
+        for process in finished_processes:
+            self.processes.remove(process)
+            ret = process.communicate()  # Clean up process resources
+
+        if not self.processes:
+            self.timer.stop()
+
+        # update process table (idk why but if it works it works)
+        self.display_processTabW(self.processes)
+
     def retranslateUi(self, TruckAnalytics):
         _translate = QtCore.QCoreApplication.translate
         TruckAnalytics.setWindowTitle(_translate("TruckAnalytics", "MainWindow"))
@@ -265,21 +304,54 @@ class Ui_TruckAnalytics(object):
         # This button is use for process a new video.
         # 1) select a new mp4 video
         # 2）jump to model selection page and do selection.
-        filepath1, _ = QFileDialog.getOpenFileName(None)  # filepath1 is the selected MP4 video path
-        if filepath1.endswith('.mp4'):
-            from ModelSelectUI import showModelSel
-            modelJson = showModelSel()
-            print(modelJson)
 
-            ####################
-            testList = ["sf","sdfs","sfsd","dsfs"]
-            ##################
+        # user selected video path
+        video_path, _ = QFileDialog.getOpenFileName(None)
+        if not video_path.endswith(".mp4"):
+            warnings.warn("invalid file for processing, must be an mp4 file")
+            return None
 
-            self.display_processTabW(testList)
+        modelJson = showModelSel()
+        if modelJson is None:
+            # user exited the model selection page without confirming
+            return None
 
+        model_folder = modelJson.get("model", None)
+        if model_folder is not None:
+            # get process video arguments ready
+            active_learn = modelJson.get("active_learn", False)
+            active_learning_classes = ["trreefer", "vp"]
+            active_learning_budget = 25
+            abs_vid_path = str(Path(video_path).resolve())
+            python_path = sys.executable
+            process_script = str(Path(__file__).parent / "process_video.py")
+
+            command = [
+                python_path,
+                process_script,
+                abs_vid_path,
+                "--model",
+                model_folder,
+                "--active-learning-classes",
+                *active_learning_classes,
+                "--active-learning-budget",
+                str(active_learning_budget),
+            ]
+            if active_learn:
+                command.append("--active-learn")
+
+            if not self.processes:
+                # timer for polling finished processes
+                self.timer.start(5000)
+
+            self.processes.append(
+                subprocess.Popen(args=command, stdout=subprocess.DEVNULL)
+            )
+            self.display_processTabW(self.processes)
         else:
-            raise Exception("Wrong input datatype.")
-           
+            warnings.warn("No detector selected, cannot continue to processing")
+            return None
+
     def load_data(self):
         # upload correct type of document
         # if document type is mp4, then process it as a video.
@@ -295,7 +367,9 @@ class Ui_TruckAnalytics(object):
             with open(filepath2, "r") as file:
                 self.data = list(csv.reader(file))  # if file != *.csv  raise Exception
             self.HeaderLable = self.data.pop(0)
-            self.tableW.setHorizontalHeaderLabels(self.HeaderLable)     # Set header with using 1st row of csv
+            self.tableW.setHorizontalHeaderLabels(
+                self.HeaderLable
+            )  # Set header with using 1st row of csv
             self.load_data_to_table()
 
         elif filename.endswith(
@@ -372,7 +446,7 @@ class Ui_TruckAnalytics(object):
                 # playState ==1 and self.video_capture !=None
                 self.program = self.program.strip().lower()
                 self.currentProg = self.currentProg.strip().lower()
-                if self.currentProg not in self.program: 
+                if self.currentProg not in self.program:
                     if self.__startProg() == False:
                         self.playState = 0
                         return
@@ -387,7 +461,7 @@ class Ui_TruckAnalytics(object):
             elif self.lastFrame is not None:
                 self.__flashFrame(self.lastFrame)
                 return
-        else: 
+        else:
             if self.debug:
                 print("unsure state. reset to 0")
             self.playState = 0
@@ -554,34 +628,49 @@ class Ui_TruckAnalytics(object):
     def csv_video_connect(self):
         # change the position of the video player base of frame count from the csv file
         row = self.tableW.currentRow()
-        col_num = self.HeaderLable.index("initial_frame_index")
-        message = self.tableW.item(row, col_num).text()  # Message is the frame count from the csv.
+        col_num = self.HeaderLable.index("initial_frame")
+        message = self.tableW.item(
+            row, col_num
+        ).text()  # Message is the frame count from the csv.
 
         self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, int(message))
         ret, frame = self.video_capture.read()
         if ret:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)     # Convert frame to RGB format
-            image = QImage(frame_rgb.data, frame_rgb.shape[1], frame_rgb.shape[0], QImage.Format_RGB888)
+            frame_rgb = cv2.cvtColor(
+                frame, cv2.COLOR_BGR2RGB
+            )  # Convert frame to RGB format
+            image = QImage(
+                frame_rgb.data,
+                frame_rgb.shape[1],
+                frame_rgb.shape[0],
+                QImage.Format_RGB888,
+            )
             pixmap = QPixmap.fromImage(image)
-            self.videoplayer.setPixmap(pixmap)  
+            self.videoplayer.setPixmap(pixmap)
 
-    def display_processTabW(self,testlist):
+    def display_processTabW(self, processes):
         # this is use to display processtableWidget.
-        self.ProcessTable.setRowCount(len(testlist))
+        self.ProcessTable.setRowCount(len(processes))
         self.ProcessTable.setColumnCount(2)
-        for row, item in enumerate(testlist):
+        for row, process in enumerate(processes):
             button = QtWidgets.QPushButton("KILL")
             button.clicked.connect(lambda checked, r=row: self.Kill_process(r))
             self.ProcessTable.setCellWidget(row, 1, button)
             self.ProcessTable.setColumnWidth(0, 300)
 
-            item = QTableWidgetItem(item)
+            vid_name = Path(process.args[2]).name
+            item = QTableWidgetItem(vid_name)
             self.ProcessTable.setItem(row, 0, item)
             self.ProcessTable.setColumnWidth(1, 100)
 
-    def Kill_process(self,row):
-        print("Button clicked with index:", row)
+    def Kill_process(self, row):
+        if row < len(self.processes):
+            process = self.processes[row]
+            process.terminate()  # Terminate the process
+            self.processes.pop(row)
+            self.ProcessTable.removeRow(row)
         return row
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)

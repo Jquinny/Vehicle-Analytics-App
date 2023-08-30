@@ -1,5 +1,5 @@
 {
-    "architecture": "yolov8",
+    "architecture": "yolov8n.pt",
     "task": "detect",
     "classes": {
         "0": "bus",

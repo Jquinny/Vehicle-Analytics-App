@@ -12,6 +12,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from model_registry import ModelRegistry
 import os, json
 
+
 class Ui_MainWindow(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
@@ -21,7 +22,9 @@ class Ui_MainWindow(object):
         self.buttonBox = QtWidgets.QDialogButtonBox(Dialog)
         self.buttonBox.setGeometry(QtCore.QRect(700, 680, 341, 32))
         self.buttonBox.setOrientation(QtCore.Qt.Horizontal)
-        self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel|QtWidgets.QDialogButtonBox.Ok)
+        self.buttonBox.setStandardButtons(
+            QtWidgets.QDialogButtonBox.Cancel | QtWidgets.QDialogButtonBox.Ok
+        )
 
         self.modeltableW = QtWidgets.QTableWidget(self.centralwidget)
         self.modeltableW.setGeometry(QtCore.QRect(20, 140, 551, 561))
@@ -32,23 +35,25 @@ class Ui_MainWindow(object):
         self.verticalLayout_1 = QtWidgets.QVBoxLayout(self.verticalLayoutWidget_2)
         self.verticalLayout_1.setContentsMargins(0, 0, 0, 0)
 
-        self.active_learn = QtWidgets.QCheckBox("Active-learning", self.verticalLayoutWidget_2)
+        self.active_learn = QtWidgets.QCheckBox(
+            "Active-learning", self.verticalLayoutWidget_2
+        )
         self.active_learn.stateChanged.connect(self.IsActiveLearn)
         self.verticalLayout_1.addWidget(self.active_learn)
 
-        self.lt = QtWidgets.QCheckBox("LT",self.verticalLayoutWidget_2)
+        self.lt = QtWidgets.QCheckBox("LT", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.lt)
         self.tronly = QtWidgets.QCheckBox("TrOnly", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.tronly)
         self.trchass = QtWidgets.QCheckBox("TrChass", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.trchass)
-        self.trflat = QtWidgets.QCheckBox("TrFlat",self.verticalLayoutWidget_2)
+        self.trflat = QtWidgets.QCheckBox("TrFlat", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.trflat)
         self.trtrail = QtWidgets.QCheckBox("TrTrail", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.trtrail)
         self.trreefer = QtWidgets.QCheckBox("TrReefer", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.trreefer)
-        self.bus = QtWidgets.QCheckBox("Bus",self.verticalLayoutWidget_2)
+        self.bus = QtWidgets.QCheckBox("Bus", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.bus)
         self.trcont = QtWidgets.QCheckBox("TrCont", self.verticalLayoutWidget_2)
         self.verticalLayout_1.addWidget(self.trcont)
@@ -87,26 +92,27 @@ class Ui_MainWindow(object):
         self.Bud_data.setMaximum(1000)
         self.BudgetLayout.addWidget(self.Bud_data)
 
-
         self.horizontalLayoutWidget = QtWidgets.QWidget(self.centralwidget)
         self.horizontalLayoutWidget.setGeometry(QtCore.QRect(20, 90, 551, 41))
         self.horizontalLayout = QtWidgets.QHBoxLayout(self.horizontalLayoutWidget)
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
-        self.label = QtWidgets.QLabel("Sort_by: ",self.horizontalLayoutWidget)
+        self.label = QtWidgets.QLabel("Sort_by: ", self.horizontalLayoutWidget)
         self.horizontalLayout.addWidget(self.label)
         self.Confi = QtWidgets.QRadioButton("Confi", self.horizontalLayoutWidget)
         self.horizontalLayout.addWidget(self.Confi)
-        self.Classcount = QtWidgets.QRadioButton("class count",self.horizontalLayoutWidget)
+        self.Classcount = QtWidgets.QRadioButton(
+            "class count", self.horizontalLayoutWidget
+        )
         self.horizontalLayout.addWidget(self.Classcount)
-        self.speed = QtWidgets.QRadioButton("Speed",self.horizontalLayoutWidget)
+        self.speed = QtWidgets.QRadioButton("Speed", self.horizontalLayoutWidget)
         self.horizontalLayout.addWidget(self.speed)
         self.speed.clicked.connect(self.SortbySpeed)
         self.Confi.clicked.connect(self.Sortbymap50)
         self.Classcount.clicked.connect(self.SortbyClassCount)
         self.retranslateUi(Dialog)
-        self.buttonBox.accepted.connect(self.Result) # type: ignore
-        self.buttonBox.accepted.connect(Dialog.accept) # type: ignore
-        self.buttonBox.rejected.connect(Dialog.reject) # type: ignore
+        self.buttonBox.accepted.connect(self.Result)  # type: ignore
+        self.buttonBox.accepted.connect(Dialog.accept)  # type: ignore
+        self.buttonBox.rejected.connect(Dialog.reject)  # type: ignore
         QtCore.QMetaObject.connectSlotsByName(Dialog)
         self.read_data()
         self.message = None
@@ -146,37 +152,45 @@ class Ui_MainWindow(object):
         # Show model selection list in the table widgets.
         # load datat to the table.
         parent_path = os.getcwd()
-        folder_path = os.path.join(parent_path, "models","detection")    # this is the model directory path
+        folder_path = os.path.join(
+            parent_path, "models", "detection"
+        )  # this is the model directory path
         Load_data = ModelRegistry(folder_path).create_dataframe()
         self.modeldataset = Load_data.values.tolist()
         self.modelHeader = Load_data.columns.values.tolist()
         self.show_Modellist()
 
     def show_Modellist(self):
-        self.modeltableW.setColumnCount(len(self.modeldataset[0]))       # set table col count acording to dataframe.
+        self.modeltableW.setColumnCount(
+            len(self.modeldataset[0])
+        )  # set table col count acording to dataframe.
         self.modeltableW.setRowCount(len(self.modeldataset))
         self.modeltableW.setHorizontalHeaderLabels(self.modelHeader)
         for row_idx, row_data in enumerate(self.modeldataset):
             for col_idc, col_data in enumerate(row_data):
                 item = QtWidgets.QTableWidgetItem(str(col_data))
-                self.modeltableW.setItem(row_idx,col_idc,item)
+                self.modeltableW.setItem(row_idx, col_idc, item)
         self.set_checkboxes()
 
     def update_label(self):
         row = self.modeltableW.currentRow()
         col_num = self.modelHeader.index("folder")
-        self.message = self.modeltableW.item(row, col_num).text()  # Message is the frame count from the csv.
-        # update label 
-        self.choosed_model.setText("Model choose: %s" %self.message)
+        self.message = self.modeltableW.item(
+            row, col_num
+        ).text()  # Message is the frame count from the csv.
+        # update label
+        self.choosed_model.setText("Model choose: %s" % self.message)
         self.update_checkboxes(self.message)
 
-    def update_checkboxes(self,message):
-        #open and read json file
-        Jason_path = os.path.join(os.getcwd(), "models","detection",message,"metadata.json")    # this is the model directory path
-        with open(Jason_path, 'r') as file:
+    def update_checkboxes(self, message):
+        # open and read json file
+        Jason_path = os.path.join(
+            os.getcwd(), "models", "detection", message, "metadata.json"
+        )  # this is the model directory path
+        with open(Jason_path, "r") as file:
             data = json.load(file)
         # Get the set of classes from the JSON data
-        json_classes = set(data['classes'].values())
+        json_classes = set(data["classes"].values())
         for checkbox in self.checkBoxes:
             class_name = checkbox.text().lower()
             checkbox.setChecked(class_name in json_classes)
@@ -187,20 +201,20 @@ class Ui_MainWindow(object):
         if not self.active_learn.isChecked():
             self.Bud_data.hide()
             self.Image_Bud.hide()
-            for i in self.checkBoxes: 
+            for i in self.checkBoxes:
                 i.hide()
                 i.setChecked(False)
-        else: 
+        else:
             self.Bud_data.show()
             self.Image_Bud.show()
-            for i in self.checkBoxes: 
+            for i in self.checkBoxes:
                 i.setChecked(True)
                 i.show()
 
     def SortbySpeed(self):
         # sort data by its speed
         try:
-            #print("Sort by Speed trigered.")
+            # print("Sort by Speed trigered.")
             col_num = self.modelHeader.index("inf speed (ms)")
             self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse=True)
             self.show_Modellist()
@@ -210,7 +224,7 @@ class Ui_MainWindow(object):
     def SortbyClassCount(self):
         # sort data by it class count
         try:
-            #print("Sort by class count trigered.")
+            # print("Sort by class count trigered.")
             col_num = self.modelHeader.index("num of classes")
             self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse=True)
             self.show_Modellist()
@@ -220,16 +234,16 @@ class Ui_MainWindow(object):
     def Sortbymap50(self):
         # sort data by it confidence.
         try:
-            #print("Sort by confi trigered.")
+            # print("Sort by confi trigered.")
             col_num = self.modelHeader.index("mAP50")
-            self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse = True)
+            self.modeldataset.sort(key=lambda x: float(x[col_num]), reverse=True)
             self.show_Modellist()
         except AttributeError as err:
             print("Can't sort when here is no data!")
 
     def Result(self):
         # return Result_list
-        final_Result= {"model": self.message}
+        final_Result = {"model": self.message}
         final_Result["active_learn"] = self.active_learn.isChecked()
         final_Result["image_budget"] = self.Bud_data.value()
         Class_info = {}
@@ -241,14 +255,19 @@ class Ui_MainWindow(object):
 
 
 def showModelSel():
-    #MainWindow = QtWidgets.QMainWindow()
+    # MainWindow = QtWidgets.QMainWindow()
     Dialog = QtWidgets.QDialog()
     ui = Ui_MainWindow()
     ui.setupUi(Dialog)
     if Dialog.exec_():
-        #ret=ui.Xjson
+        # ret=ui.Xjson
         pass
-    # print(ui.mydic)
-    return ui.mydic
+
+    if hasattr(ui, "mydic"):
+        return ui.mydic
+    else:
+        return None
+
 
 if __name__ == "__main__":
+    pass

@@ -7,6 +7,7 @@ from typing import List, Any, Dict
 import cv2 as cv
 import numpy as np
 import torch
+import yaml
 
 from PIL import Image
 from norfair import Detection
@@ -15,8 +16,22 @@ from src.utils.image import extract_objects
 from src.utils.geometry import points_to_rect
 
 
+def write_yolo_yaml(abs_img_path: str, cls_map: Dict[int, str]):
+    yaml_info = {
+        "names": cls_map,
+    }
+    yaml_path = Path(abs_img_path).parents[1] / "data.yaml"
+    yaml_path = yaml_path.resolve()
+
+    with open(yaml_path, "w") as f:
+        yaml.dump(yaml_info, f)
+
+
 def write_yolo_annotation_files(
-    detections: List[Detection], img: np.ndarray, abs_img_path: str
+    detections: List[Detection],
+    cls_map: Dict[int, str],
+    img: np.ndarray,
+    abs_img_path: str,
 ):
     """helper function for writing images and annotations in yolo format to a .txt file
 
@@ -33,6 +48,10 @@ def write_yolo_annotation_files(
     # write the image first
     cv.imwrite(abs_img_path, img)
 
+    # write the yaml for class num to name mapping
+    write_yolo_yaml(abs_img_path, cls_map)
+
+    # write annotation file
     ann_dir = Path(abs_img_path).parents[1] / "labels"
     if not ann_dir.exists():
         ann_dir.mkdir()

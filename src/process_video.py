@@ -19,7 +19,7 @@ from norfair.drawing import Palette
 
 from config import ROOT_DIR, VEHICLE_DATA_COLUMNS
 from src.active_learning import active_learn, write_yolo_annotation_files
-from src.tracking import VehicleInstance
+from src.tracking import VehicleInstance, CumulativeAverage
 from src.models.base_model import BaseModel
 from src.utils.user_input import get_roi, get_coordinates, check_existing_user_input
 from src.utils.drawing import (
@@ -42,9 +42,13 @@ DISTANCE_THRESHOLD_BBOX: float = 0.5
 PAST_DETECTIONS_LENGTH: int = 5
 
 # detection constants
-CONF_THRESHOLD = 0.60
+CONF_THRESHOLD = 0.30
 
 ROI_OVERLAP_PCT: float = 0.15
+
+DETECTOR_ROOT_DIR = str(ROOT_DIR / "models/detection")
+CLASSIFIER_ROOT_DIR = str(ROOT_DIR / "models/classification")
+DEFAULT_CLASSIFIER = "2023-08-24_01-16-58"
 
 
 # required for unpickling pytorch models sometimes if they were trained on
@@ -61,8 +65,8 @@ def set_posix_windows():
 
 def process(
     video_path: str,
-    detector: BaseModel,
-    classifier: BaseModel | None = None,
+    model_dir: str,
+    two_stage: bool = False,
     active_learning: bool = False,
     active_learning_classes: List[int] | None = None,
     active_learning_budget: int = 100,
@@ -78,13 +82,14 @@ def process(
     ---------
     video_path (str):
         absolute path to the video to be processed
-    detector (BaseModel):
-        the object detector used for vehicle detection and classification
-    classifier (BaseModel | None):
-        allows for running detector + classifier for better results
+    model_dir (str):
+        the directory name holding the model weights and metadata to be used for
+        detection
+    two_stage (bool):
+        whether to run the algorithm using detector + classifier or just detector
     active_learning (bool):
         whether to save low confidence frames for active learning
-    active_learning_classes: (List[int] | None):
+    active_learning_classes: (List[str] | None):
         the classes to be captured when doing active learning
     active_learning_budget (int):
         the max amount of images that can be extracted for active learning
@@ -100,6 +105,7 @@ def process(
     str:
         path to the output directory
     """
+    # ------------------ Initial Setup -------------------------------------- #
     if debug:
         print("Setting up ...")
 
@@ -118,9 +124,7 @@ def process(
 
     reader = easyocr.Reader(["en"])
 
-    distance_function = "iou"
-    distance_threshold = DISTANCE_THRESHOLD_BBOX
-
+    # ------------------- User Input Setup ---------------------------------- #
     # try and grab timestamp from the first video frame
     first_frame = video_handler.get_frame(0)
     initial_datetime = parse_timestamp(first_frame, reader)
@@ -174,6 +178,30 @@ def process(
         )
         zone_mask = np.argmin(distances, axis=-1)
 
+    # ------------ detection and optionally classifier model setup ----------- #
+    detector_selector = ModelRegistry(DETECTOR_ROOT_DIR)
+    detector = detector_selector.generate_model(model_dir)
+
+    classifier = None
+    if two_stage:
+        with set_posix_windows():
+            classifier_selector = ModelRegistry(CLASSIFIER_ROOT_DIR)
+            classifier = classifier_selector.generate_model(DEFAULT_CLASSIFIER)
+
+    cls_map = detector.get_classes() if classifier is None else classifier.get_classes()
+
+    if active_learn and active_learning_classes:
+        # map the active learning classes to their numerical form
+        reverse_cls_map = {name: num for num, name in cls_map.items()}
+        active_learning_classes = [
+            reverse_cls_map[name]
+            for name in active_learning_classes
+            if name in reverse_cls_map.keys()
+        ]
+
+    distance_function = "iou"
+    distance_threshold = DISTANCE_THRESHOLD_BBOX
+
     tracker = Tracker(
         distance_function=distance_function,
         distance_threshold=distance_threshold,
@@ -192,29 +220,12 @@ def process(
     active_learning_frames: defaultdict[int, Dict[str, Any]] = defaultdict(
         lambda: {"detections": []}
     )
-    if active_learn:
-        # make sure active learning classes are set up properly
-        all_classes = (
-            list(detector.get_classes().keys())
-            if classifier is None
-            else list(classifier.get_classes().keys())
-        )
-        if active_learning_classes is None:
-            active_learning_classes = all_classes
-        else:
-            if not set(active_learning_classes).issubset(set(all_classes)):
-                active_learning_classes = [
-                    cls for cls in active_learning_classes if cls in all_classes
-                ]
 
     # color map for visualizing bounding boxes and class estimates
     # NOTE: supports 20 classes for now
     Palette.set("tab20")
 
-    cls_map = detector.get_classes() if classifier is None else classifier.get_classes()
-
     print("beginning to process ...")
-    start = time.time()
     try:
         for frame_idx, frame in enumerate(video_handler):
             # get detections from model inference
@@ -345,7 +356,6 @@ def process(
             [data for _, data in results.items()],
             columns=VEHICLE_DATA_COLUMNS,
         ).astype(dtype=VEHICLE_DATA_COLUMNS)
-    print(f"Total Time: {time.time() - start}")  # FOR TESTING ....................
 
     # write results to csv
     csv_path = str(output_dir / (video_path.stem + ".csv"))
@@ -356,7 +366,7 @@ def process(
     if active_learning and active_learning_frames:
         image_info_dict = active_learn(
             image_info=active_learning_frames,
-            all_classes=all_classes,
+            all_classes=list(cls_map.keys()),
             minority_classes=active_learning_classes,
             budget=active_learning_budget,
         )
@@ -371,7 +381,7 @@ def process(
 
             filename = video_path.stem + f"_{frame_idx}.jpeg"
             abs_img_path = img_dir / filename
-            write_yolo_annotation_files(detections, frame, str(abs_img_path))
+            write_yolo_annotation_files(detections, cls_map, frame, str(abs_img_path))
 
     video_handler.cleanup()
 
@@ -383,16 +393,15 @@ if __name__ == "__main__":
         description="Track vehicles in video and obtain data about them."
     )
     parser.add_argument(
-        "--model",
+        "video",
         type=str,
-        help="relative path to directory containing model metadata and weights",
-        default="models/detection/test_yolov8n",
+        help="absolute path to the video file",
     )
     parser.add_argument(
-        "--video",
+        "--model",
         type=str,
-        help="relative path to video input file",
-        default="videos/test/vehicle-counting.mp4",
+        help="name of directory containing detector metadata and weights",
+        default="test_yolov8n",
     )
     parser.add_argument(
         "--active-learn",
@@ -401,7 +410,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--active-learning-classes",
-        type=int,
+        type=str,
         nargs="+",
         help="list of classes to pull frames for active learning",
     )
@@ -423,23 +432,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--save", help="write video to a file", action="store_true")
     args = parser.parse_args()
-    model_dir = Path(ROOT_DIR / args.model)
-    video_path = str(ROOT_DIR / args.video)
-
-    detector_selector = ModelRegistry(str(model_dir.parent))
-    detector = detector_selector.generate_model(model_dir.stem)
-
-    classifier = None
-    if args.two_stage:
-        DEFAULT_CLASSIFIER = "2023-08-24_01-16-58"
-        with set_posix_windows():
-            classifier_selector = ModelRegistry(str(ROOT_DIR / "models/classification"))
-            classifier = classifier_selector.generate_model(DEFAULT_CLASSIFIER)
+    video_path = str(Path(args.video).resolve())
 
     output_dir = process(
         video_path=video_path,
-        detector=detector,
-        classifier=classifier,
+        model_dir=args.model,
+        two_stage=args.two_stage,
         active_learning=args.active_learn,
         active_learning_classes=args.active_learning_classes,
         active_learning_budget=args.active_learning_budget,

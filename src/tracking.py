@@ -42,7 +42,6 @@ class VehicleInstance:
         elapsed_time: int,
         initial_frame_index: int,
         detector_class_map: Dict[int, str],
-        classifier: BaseModel = None,
     ):
         """Initialises the state for a vehicle"""
 
@@ -143,16 +142,17 @@ class VehicleInstance:
                 result = classifier.inference(img_slice, verbose=False)
                 class_bins[idx, :] = result
 
-                # update the class stored in the detections in case active
-                # learning is toggled
-                det.data["class"] = np.argmax(result)
-
             cls_estimates = np.mean(class_bins, axis=0)
             cls_num = np.argmax(cls_estimates)
             conf = cls_estimates[cls_num]
 
             self._class = cls_num
             self._class_conf = conf
+
+        # update the class stored in the detections in case active
+        # learning is toggled
+        for det in self._detections:
+            det.data["class"] = self._class
 
     def compute_directions(
         self,
