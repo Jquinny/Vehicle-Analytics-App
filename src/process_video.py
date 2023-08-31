@@ -163,6 +163,7 @@ def process(
     if json_file_list:
         use_existing = check_existing_user_input()
 
+    # NOTE: Change  to do use_existing check after showing user saved stuff
     if use_existing:
         # load in existing roi and direction coordinates
         with open(str(json_file_list[0]), "r") as f:
@@ -270,7 +271,7 @@ def process(
             )
 
             # filter detections outside of ROI
-            if roi is not None:
+            if not roi.is_empty():
                 valid_detections: List[Detection] = []
                 for detection in norfair_detections:
                     bbox = points_to_rect(detection.points)

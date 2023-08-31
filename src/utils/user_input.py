@@ -210,7 +210,7 @@ def get_roi_points(event, x, y, flags, data: dict):
     return
 
 
-def get_roi(frame: np.ndarray) -> Poly | None:
+def get_roi(frame: np.ndarray) -> Poly:
     """gets the region of interest polygon from the user via openvc gui"""
     window_title = "Region of Interest Extraction"
     window_scale_x = frame.shape[1] / WINDOW_SIZE[0]
@@ -242,7 +242,7 @@ def get_roi(frame: np.ndarray) -> Poly | None:
                 data["roi"].clear_coords()
                 if handle_invalid_polygon():
                     cv.destroyWindow(window_title)
-                    return None
+                    return Poly()
                 data["copy"] = data["original"].copy()
                 continue
 
@@ -263,7 +263,7 @@ def get_roi(frame: np.ndarray) -> Poly | None:
             ]
         )
     else:
-        return None
+        return Poly()
 
 
 def get_coordinate_points(event, x, y, flags, data: dict):
