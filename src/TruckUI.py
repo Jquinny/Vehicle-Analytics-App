@@ -26,7 +26,7 @@ import datetime
 import warnings
 from pathlib import Path
 from typing import List, Tuple
-from PyQt5.QtWidgets import QTableWidgetItem, QFileDialog, QLabel
+from PyQt5.QtWidgets import QTableWidgetItem, QFileDialog, QLabel, QMessageBox
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5 import QtWidgets, QtCore
@@ -266,6 +266,9 @@ class Ui_TruckAnalytics(object):
 
     def GoBack(self):
         # Rewind video for 30 frames.
+        if self.video_capture is None:
+            self.show_info_message("Error Skipping Frames","No video is loaded.")
+            return
         current_frame = int(self.video_capture.get(cv2.CAP_PROP_POS_FRAMES))
         target_frame = max(0, current_frame - 30)
         self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
@@ -282,12 +285,20 @@ class Ui_TruckAnalytics(object):
 
     def SkipFront(self):
         # Skip video for 30 frames.
+        if self.video_capture is None:
+            self.show_info_message("Error Skipping Frames","No video is loaded.")
+            return
+
         current_frame = int(self.video_capture.get(cv2.CAP_PROP_POS_FRAMES))
         target_frame = max(0, current_frame + 30)
         self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
 
     def Take_SCS(self):
         # This function is use to let user take screenshot. and save it to the selected file.
+        if self.video_capture is None:
+            self.show_info_message("Error Skipping Frames","No video is loaded.")
+            return
+
         Current_FN = int(self.video_capture.get(cv2.CAP_PROP_POS_FRAMES))
         output_folder = QFileDialog.getExistingDirectory(None)
 
@@ -308,7 +319,8 @@ class Ui_TruckAnalytics(object):
         # user selected video path
         video_path, _ = QFileDialog.getOpenFileName(None)
         if not video_path.endswith(".mp4"):
-            warnings.warn("invalid file for processing, must be an mp4 file")
+            self.show_info_message("Type Error","invalid file for processing, must be an mp4 file")
+            #vwarnings.warn("invalid file for processing, must be an mp4 file")
             return None
 
         modelJson = showModelSel()
@@ -363,23 +375,17 @@ class Ui_TruckAnalytics(object):
         # Other document type will raise an error.
         filepath2, _ = QFileDialog.getOpenFileName(None)
         filename = os.path.basename(filepath2)  # find the file name
-        if filename.endswith(
-            ".csv"
-        ):  # If the loaded data is a csv file, then process it as a csv.
-            # print("This is a csv file")
+        if filename.endswith(".csv"):
             self.filepath2 = filepath2
             with open(filepath2, "r") as file:
-                self.data = list(csv.reader(file))  # if file != *.csv  raise Exception
+                self.data = list(csv.reader(file))  
             self.HeaderLable = self.data.pop(0)
             self.tableW.setHorizontalHeaderLabels(
                 self.HeaderLable
             )  # Set header with using 1st row of csv
             self.load_data_to_table()
 
-        elif filename.endswith(
-            ".mp4"
-        ):  # if the loaded data is a mp4 videl, then process it as a mp4 video.
-            # print("This is a mp4 video.")
+        elif filename.endswith(".mp4"): 
             self.program = filepath2
             self.video_capture = cv2.VideoCapture(filepath2)
             self.total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -388,7 +394,7 @@ class Ui_TruckAnalytics(object):
             self.Slider.sliderMoved.connect(self.set_position)
 
         else:
-            warnings.warn("Sorry, Wrong type of data!")
+            self.show_info_message("Type Error","invalid file for processing, must be an mp4 file")
 
     def format_time(self, time_in_seconds):
         m, s = divmod(time_in_seconds, 60)
@@ -675,6 +681,12 @@ class Ui_TruckAnalytics(object):
             self.ProcessTable.removeRow(row)
         return row
 
+    def show_info_message(self, title, message):
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.exec_()
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
