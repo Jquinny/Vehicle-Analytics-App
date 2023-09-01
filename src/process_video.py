@@ -95,6 +95,7 @@ def process(
     active_learning: bool = False,
     active_learning_classes: List[int] | None = None,
     active_learning_budget: int = 100,
+    sample_time: int = 1,
     save_video: bool = False,
     debug: bool = False,
 ) -> str:
@@ -232,7 +233,7 @@ def process(
     active_learning_frames: defaultdict[int, Dict[str, Any]] = defaultdict(lambda: {})
 
     # sampling rates for grabbing candidate images
-    sampling_rate = video_handler.fps
+    sampling_rate = video_handler.fps * sample_time
     sample_tracker = 0
 
     # ----------------- tracking setup ------------------------------------- #
@@ -373,8 +374,16 @@ def process(
                 if zone_mask is not None:
                     draw_zones(frame_copy, zone_mask)
 
-            if debug and video_handler.show(frame_copy, 10) == ord("q"):
-                break
+                key = video_handler.show(frame_copy, 10)
+                if key == ord("q"):
+                    break
+                elif key == ord("s"):
+                    # TODO: add ability to save frame to folder in output directory.
+                    # folder should be called debug_frames, and the filenames
+                    # should be <video_name>_<frame_idx>.jpeg
+                    # NOTE: use this for getting the few frames from Hope trim
+                    # video in test_videos (using them to show vehicle trajectory)
+                    pass
 
         results_df = pd.DataFrame(
             [data for _, data in results.items()],
@@ -455,6 +464,12 @@ if __name__ == "__main__":
         default=100,
     )
     parser.add_argument(
+        "--active-learning-sample-rate",
+        type=int,
+        help="the amount of time between sampled frames when getting candidate images for active learning",
+        default=1,
+    )
+    parser.add_argument(
         "--two-stage",
         help="whether to run detector + classifier or just detector",
         action="store_true",
@@ -475,6 +490,7 @@ if __name__ == "__main__":
         active_learning=args.active_learn,
         active_learning_classes=args.active_learning_classes,
         active_learning_budget=args.active_learning_budget,
+        sample_time=args.active_learning_sample_rate,
         save_video=args.save,
         debug=args.debug,
     )
