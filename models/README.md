@@ -4,6 +4,25 @@ This directory contains all trained models as well as a metadata file associated
 with each one. Each directory in the task specific folders should contain
 the metadata.json file and the model weights in weights/best.pt
 
+The directory structure should look as follows:
+
+```
+models
+    |
+    ├── <task 1 i.e. detection, classification, re-identification, etc.>
+    |       |
+    |       ├── <model 1>
+    |       |       ├── <weights>
+    |       |       |       └── <best.pt>
+    |       |       └── <metadata.json>
+    |       .
+    |       .
+    |       ├── <model n>
+    |       |       ├── <weights>
+    |       |       |       └── <best.pt>
+    |       |       └── <metadata.json>
+```
+
 ### JSON Format
 
 ```
