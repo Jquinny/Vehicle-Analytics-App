@@ -163,6 +163,7 @@ def process(
     if json_file_list:
         use_existing = check_existing_user_input()
 
+    # NOTE: Change  to do use_existing check after showing user saved stuff
     if use_existing:
         # load in existing roi and direction coordinates
         with open(str(json_file_list[0]), "r") as f:
@@ -270,7 +271,7 @@ def process(
             )
 
             # filter detections outside of ROI
-            if roi is not None:
+            if not roi.is_empty():
                 valid_detections: List[Detection] = []
                 for detection in norfair_detections:
                     bbox = points_to_rect(detection.points)
@@ -305,6 +306,7 @@ def process(
                     # initialize new vehicle instance
                     elapsed_time = int(frame_idx / video_handler.fps)
                     vehicles[obj.global_id] = VehicleInstance(
+                        global_id=obj.global_id,
                         initial_dt=initial_datetime,
                         elapsed_time=elapsed_time,
                         initial_frame_index=video_handler.current_frame,
@@ -323,6 +325,11 @@ def process(
                     # estimate vehicle centroid using center of bounding box
                     center = points_to_rect(obj.last_detection.points).center
                     vehicles[obj.global_id].update_coords(center)
+
+                    # add global id to last detection for output display
+                    # NOTE: taking advantage of the way references work in python,
+                    # this is a greasy way of doing this
+                    obj.last_detection.data["global_id"] = obj.global_id
 
             # purge any vehicles no longer being tracked and store data in results
             for global_id, vehicle in list(vehicles.items()):
@@ -347,9 +354,11 @@ def process(
                     bbox = points_to_rect(detection.points)
                     class_num = detection.data.get("class")
                     conf = detection.data.get("conf")
+                    global_id = detection.data.get("global_id")
                     draw_rect(
                         frame_copy,
                         rect=bbox,
+                        tracker_id=global_id,
                         class_name=cls_map.get(class_num),
                         conf=conf,
                         color=Palette.choose_color(class_num),

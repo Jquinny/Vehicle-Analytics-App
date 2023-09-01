@@ -39,13 +39,14 @@ class VehicleInstance:
 
     def __init__(
         self,
+        global_id: int,
         initial_dt: datetime.datetime,
         elapsed_time: int,
         initial_frame_index: int,
         cls_map: Dict[int, str],
     ):
         """Initialises the state for a vehicle"""
-
+        self._global_id = global_id
         self._num_of_frames = 0
         self._timestamp = (
             str(initial_dt + datetime.timedelta(seconds=elapsed_time))
@@ -92,6 +93,7 @@ class VehicleInstance:
             "video_timestamp": self._video_timestamp,
             "initial_frame": self._initial_frame_index,
             "total_frames": self._num_of_frames,
+            "global_id": self._global_id,
             "class": self._class_map.get(self._class),
             "confidence": round(self._class_conf, 2),
             "entry_direction": self._entry_direction,
