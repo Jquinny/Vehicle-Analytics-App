@@ -381,8 +381,8 @@ def process(
                     # TODO: add ability to save frame to folder in output directory.
                     # folder should be called debug_frames, and the filenames
                     # should be <video_name>_<frame_idx>.jpeg
-                    # NOTE: use this for getting the few frames from Hope trim
-                    # video in test_videos (using them to show vehicle trajectory)
+                    # cv.imwrite(video_path.stem + f"_{frame_idx}.jpeg", frame_copy)
+                    # print(f"frame {frame_idx} saved")
                     pass
 
         results_df = pd.DataFrame(

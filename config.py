@@ -9,6 +9,7 @@ VEHICLE_DATA_COLUMNS = {
     "video_timestamp": "string",
     "initial_frame": "UInt64",
     "total_frames": "UInt64",
+    "global_id": "UInt64",
     "class": "string",
     "confidence": "Float64",
     "entry_direction": "string",

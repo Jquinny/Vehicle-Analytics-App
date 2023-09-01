@@ -15,12 +15,12 @@ videos
     |       .
     |       .
     |       ├── <video n>
-    |       └── processing_info.json
+    |       └── user_info.json
     ├── <camera view 2>
     |       |
     |       ├── <video 1>
     |       .
     |       .
     |       ├── <video n>
-    |       └── processing_info.json
+    |       └── user_info.json
 ```

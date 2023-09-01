@@ -116,10 +116,10 @@ def _grab_model(
 
 
 def train(
-    model_dir: str | None,
-    model_arch: Literal["yolov8s", "yolov8m", "yolov8l"],
-    train_time: Literal["fast", "medium", "long"],
     dataset: str,
+    model_dir: str | None = None,
+    model_arch: Literal["yolov8s", "yolov8m", "yolov8l"] = "yolov8m",
+    epochs: int = 100,
 ) -> str:
     """trains a yolov8 small, medium, or large model using pretrained weights
     as starting point
@@ -148,17 +148,6 @@ def train(
 
     # first grab the model object based on the directory specified
     model = _grab_model(model_arch=model_arch, model_dir=model_dir)
-
-    if train_time == "fast":
-        epochs = 1  # NOTE: put back to 50 when done testing
-    elif train_time == "medium":
-        epochs = 150
-    elif train_time == "long":
-        epochs = 300
-    else:
-        raise ValueError(
-            f"invalid training time option: {train_time}\nOptions are fast, medium, and slow"
-        )
 
     # now we need to find the yaml file
     yaml_files = list(Path(dataset).glob("*.yaml"))
@@ -243,25 +232,33 @@ def train(
     return f"\npath to trained model: {str((models_dir).resolve())}\n"
 
 
+def dir_path(path):
+    if Path(path).is_dir():
+        return path
+    else:
+        raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid path")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Track vehicles in video and obtain data about them."
     )
     parser.add_argument(
-        "dataset", type=str, help="absolute path to the dataset to be used for training"
+        "dataset",
+        type=dir_path,
+        help="absolute path to the dataset to be used for training",
     )
     parser.add_argument(
         "--model-dir",
         type=str,
-        help="relative path to the model directory containing weights and metadata",
+        help="relative path to the model directory containing weights and metadata for training from checkpoint",
         default=None,
     )
     parser.add_argument(
-        "--train-time",
-        type=str,
-        help="how long to train for",
-        choices=["fast", "medium", "long"],
-        default="medium",
+        "--epochs",
+        type=int,
+        help="how long to train the model for",
+        default=100,
     )
     parser.add_argument(
         "--arch",
@@ -272,15 +269,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     model_dir = str(ROOT_DIR / args.model_dir) if args.model_dir else None
-    train_time = args.train_time
-    model_arch = args.arch
-    dataset_path = args.dataset
+    dataset_path = str(Path(args.dataset).resolve())
 
     print(
         train(
             model_dir=model_dir,
-            train_time=train_time,
-            model_arch=model_arch,
+            epochs=args.epochs,
+            model_arch=args.arch,
             dataset=dataset_path,
         )
     )
