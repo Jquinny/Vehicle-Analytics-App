@@ -26,6 +26,11 @@ been tested on so far)
 1. run `python -m venv env` from the root directory of this repository. You should end up with an env/ directory inside the vehicle-analytics-app directory
 2. activate the environment by running `.\env\Scripts\activate.bat ` if on windows or `source env/bin/activate` if on linux or mac
 3. run `python -m pip install -r requirements.txt` to install all dependencies into the virtual environment (MAKE SURE THE ENVIRONMENT IS ACTIVATED FIRST)
+4. install PyTorch dependencies using one of the following commands
+   - Windows: `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117`
+   - Linux: `pip3 install torch torchvision torchaudio`
+   - Mac: `pip3 install torch torchvision torchaudio` **Note:** Mac does not support CUDA, so no gpu access (would not recommend running on a mac)
+5. install src/ directory as a python package (run this from the root directory of the repository): `pip install --editable .`
 
 ## Running Instructions
 
