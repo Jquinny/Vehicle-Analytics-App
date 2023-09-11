@@ -6,6 +6,7 @@ from pathlib import Path
 import pathlib
 import json
 import argparse
+import traceback
 import warnings
 
 import cv2 as cv
@@ -384,19 +385,28 @@ def process(
                     # cv.imwrite(video_path.stem + f"_{frame_idx}.jpeg", frame_copy)
                     # print(f"frame {frame_idx} saved")
                     pass
+    except Exception as e:
+        print(traceback.format_exc())
+        print("\n[ERROR] Process Failed, Saving progress and exiting ...\n")
+    finally:
+        # get data for any vehicles still in roi when video ended or errored out
+        for global_id, vehicle in list(vehicles.items()):
+            # compute necessary vehicle metadata for extraction
+            vehicle.compute_directions(
+                zone_mask,
+                zone_mask_map,
+                video_handler.resolution[0] - 1,
+                video_handler.resolution[1] - 1,
+            )
+            vehicle.classify()
+
+            results[global_id] = vehicle.get_data()
 
         results_df = pd.DataFrame(
             [data for _, data in results.items()],
             columns=VEHICLE_DATA_COLUMNS,
         ).astype(dtype=VEHICLE_DATA_COLUMNS)
-    except Exception as e:
-        print(e)
-        # want to save anything processed so far in case program errors
-        # out for whatever reason
-        results_df = pd.DataFrame(
-            [data for _, data in results.items()],
-            columns=VEHICLE_DATA_COLUMNS,
-        ).astype(dtype=VEHICLE_DATA_COLUMNS)
+
 
     # write results to csv
     csv_path = str(output_dir / (video_path.stem + ".csv"))
@@ -441,10 +451,9 @@ if __name__ == "__main__":
         help="absolute path to the video file",
     )
     parser.add_argument(
-        "--model",
+        "model",
         type=str,
-        help="name of directory containing detector metadata and weights",
-        default="test_yolov8n",
+        help="name of directory containing object detector metadata and weights",
     )
     parser.add_argument(
         "--active-learn",

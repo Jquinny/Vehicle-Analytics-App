@@ -267,7 +267,7 @@ class Ui_TruckAnalytics(object):
     def GoBack(self):
         # Rewind video for 30 frames.
         if self.video_capture is None:
-            self.show_info_message("Error Skipping Frames","No video is loaded.")
+            self.show_info_message("Error Skipping Frames", "No video is loaded.")
             return
         current_frame = int(self.video_capture.get(cv2.CAP_PROP_POS_FRAMES))
         target_frame = max(0, current_frame - 30)
@@ -286,7 +286,7 @@ class Ui_TruckAnalytics(object):
     def SkipFront(self):
         # Skip video for 30 frames.
         if self.video_capture is None:
-            self.show_info_message("Error Skipping Frames","No video is loaded.")
+            self.show_info_message("Error Skipping Frames", "No video is loaded.")
             return
 
         current_frame = int(self.video_capture.get(cv2.CAP_PROP_POS_FRAMES))
@@ -296,7 +296,7 @@ class Ui_TruckAnalytics(object):
     def Take_SCS(self):
         # This function is use to let user take screenshot. and save it to the selected file.
         if self.video_capture is None:
-            self.show_info_message("Error Skipping Frames","No video is loaded.")
+            self.show_info_message("Error Skipping Frames", "No video is loaded.")
             return
 
         Current_FN = int(self.video_capture.get(cv2.CAP_PROP_POS_FRAMES))
@@ -319,8 +319,10 @@ class Ui_TruckAnalytics(object):
         # user selected video path
         video_path, _ = QFileDialog.getOpenFileName(None)
         if not video_path.endswith(".mp4"):
-            self.show_info_message("Type Error","invalid file for processing, must be an mp4 file")
-            #vwarnings.warn("invalid file for processing, must be an mp4 file")
+            self.show_info_message(
+                "Type Error", "invalid file for processing, must be an mp4 file"
+            )
+            # vwarnings.warn("invalid file for processing, must be an mp4 file")
             return None
 
         modelJson = showModelSel()
@@ -345,7 +347,6 @@ class Ui_TruckAnalytics(object):
                 python_path,
                 process_script,
                 abs_vid_path,
-                "--model",
                 model_folder,
                 "--active-learning-classes",
                 *active_learning_classes,
@@ -378,14 +379,14 @@ class Ui_TruckAnalytics(object):
         if filename.endswith(".csv"):
             self.filepath2 = filepath2
             with open(filepath2, "r") as file:
-                self.data = list(csv.reader(file))  
+                self.data = list(csv.reader(file))
             self.HeaderLable = self.data.pop(0)
             self.tableW.setHorizontalHeaderLabels(
                 self.HeaderLable
             )  # Set header with using 1st row of csv
             self.load_data_to_table()
 
-        elif filename.endswith(".mp4"): 
+        elif filename.endswith(".mp4"):
             self.program = filepath2
             self.video_capture = cv2.VideoCapture(filepath2)
             self.total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -394,7 +395,9 @@ class Ui_TruckAnalytics(object):
             self.Slider.sliderMoved.connect(self.set_position)
 
         else:
-            self.show_info_message("Type Error","invalid file for processing, must be an mp4 file")
+            self.show_info_message(
+                "Type Error", "invalid file for processing, must be an mp4 file"
+            )
 
     def format_time(self, time_in_seconds):
         m, s = divmod(time_in_seconds, 60)
@@ -687,6 +690,7 @@ class Ui_TruckAnalytics(object):
         msg_box.setWindowTitle(title)
         msg_box.setText(message)
         msg_box.exec_()
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
