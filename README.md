@@ -5,6 +5,7 @@ as timestamp of appearance, class and class confidence, and entry/exit direction
 
 #### Contributions
 Joey Quinlan - Backend video processing and active learning (headless mode)
+
 Lingrui Zhou - GUI functionality
 
 ## Repository Setup
