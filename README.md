@@ -3,6 +3,10 @@
 application for analyzing vehicles in cctv roadway footage, gathering vehicle data such
 as timestamp of appearance, class and class confidence, and entry/exit directions
 
+#### Contributions
+Joey Quinlan - Backend video processing and active learning (headless mode)
+Lingrui Zhou - GUI functionality
+
 ## Repository Setup
 
 You can get the project code either by cloning the repository or by
